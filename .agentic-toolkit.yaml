@@ -1,0 +1,3 @@
+root: agentic
+extends:
+   - github.com/wardnet/agentic-stacks/wardnet.yaml@main
