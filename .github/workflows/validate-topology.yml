@@ -1,0 +1,33 @@
+# Topology changes deliberately skip the deploy workflow (they're runtime data),
+# but main's topology.yaml is exactly what every prober fetches — an invalid
+# file would pin monitoring to last-known-good forever. This workflow is the
+# validation gate deploy.yml's paths-ignore opts out of.
+name: validate-topology
+
+on:
+  push:
+    branches: [main]
+    paths: ["topology.yaml"]
+  pull_request:
+    paths: ["topology.yaml"]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install worker deps
+        run: pnpm install --frozen-lockfile --filter @wardnet/status-worker
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate topology.yaml against the schema
+        run: pnpm --filter @wardnet/status-worker exec vitest run test/topology-file.test.ts

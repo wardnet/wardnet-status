@@ -1,0 +1,76 @@
+# Deploys the status Worker (page assets + prober + API) to Cloudflare on push
+# to main. Topology changes need NO deploy — topology.yaml is fetched at runtime.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    # Skip deploys for data/docs-only changes.
+    paths-ignore:
+      - "topology.yaml"
+      - "docs/**"
+      - "*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Type-check
+        run: pnpm type-check
+      - name: Test
+        run: pnpm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build page
+        run: pnpm --filter @wardnet/status-page build
+      - name: Apply D1 migrations
+        run: pnpm --filter @wardnet/status-worker exec wrangler d1 migrations apply wardnet-status --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Push worker secrets
+        # wrangler secret put reads the value from stdin; skipped when unset.
+        run: |
+          push() { [ -n "$2" ] && printf '%s' "$2" | pnpm --filter @wardnet/status-worker exec wrangler secret put "$1" || echo "skip $1"; }
+          push TELEGRAM_BOT_TOKEN "${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          push NTFY_TOPIC "${{ secrets.NTFY_TOPIC }}"
+          push GH_ISSUES_TOKEN "${{ secrets.GH_ISSUES_TOKEN }}"
+          push HEALTHCHECKS_PING_URL "${{ secrets.HEALTHCHECKS_PING_URL }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy
+        run: pnpm --filter @wardnet/status-worker exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
