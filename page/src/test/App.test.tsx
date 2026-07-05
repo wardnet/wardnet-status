@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -20,8 +20,9 @@ describe("status page", () => {
     render(<App />);
     expect(await screen.findByText("All systems operational")).toBeInTheDocument();
     expect(screen.getByText("Tenants (accounts & identity)")).toBeInTheDocument();
-    expect(screen.getByText("DDNS")).toBeInTheDocument();
-    expect(screen.getByText("Tunneller")).toBeInTheDocument();
+    // Same service exists in several regions — one card per region.
+    expect(screen.getAllByText("DDNS").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Tunneller").length).toBeGreaterThan(1);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -57,13 +58,36 @@ describe("status page", () => {
     expect(screen.getAllByText("Collecting…").length).toBeGreaterThan(0);
   });
 
+  it("service details are collapsed by default and expand on demand", async () => {
+    useScenario("operational");
+    render(<App />);
+    await screen.findByText("All systems operational");
+    // Collapsed: no per-service incident story visible inside region cards.
+    expect(screen.queryByText("Incidents")).not.toBeInTheDocument();
+
+    // First toggle belongs to the first service row (global / Tenants).
+    fireEvent.click(screen.getAllByRole("button", { name: "Details" })[0]!);
+    expect(screen.getByText("Incidents")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+  });
+
   it("incident history lists resolved incidents with their GitHub issue", async () => {
     useScenario("operational");
     render(<App />);
     expect(await screen.findByText("Incident history")).toBeInTheDocument();
-    expect(screen.getByText("#12")).toHaveAttribute(
+    expect(screen.getByText("issue #12")).toHaveAttribute(
       "href",
       "https://github.com/wardnet/wardnet-status/issues/12",
     );
+  });
+
+  it("incident description is behind a toggle and shows the request details", async () => {
+    useScenario("operational");
+    render(<App />);
+    await screen.findByText("Incident history");
+    expect(screen.queryByText(/Requests behind this evaluation/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "description" }));
+    expect(screen.getByText(/Requests behind this evaluation/)).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 503/)).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
-import type { Env, Status } from "./types";
+import { setIncidentFields, severityOption } from "./github-fields";
+import type { ComponentRef, Env, ProbeFailure, Status } from "./types";
 
 /**
  * Incident lifecycle (see CONTEXT.md "Incident"): one incident per episode,
@@ -21,6 +22,39 @@ interface IncidentRow {
   github_issue: number | null;
 }
 
+/** "Service Website on US East 1 is DOWN" (global components have no region suffix). */
+export function incidentTitle(ref: ComponentRef, severity: Status): string {
+  const where = ref.region === "global" ? "" : ` on ${ref.regionName}`;
+  return `Service ${ref.componentName}${where} is ${severity}`;
+}
+
+/**
+ * Markdown section listing every probe request that drove the evaluation:
+ * path, response code, latency, and (truncated) response body.
+ */
+export function failureReport(failures: ProbeFailure[]): string {
+  if (failures.length === 0) return "_No failing request details were captured._";
+  const sections = failures.map((f) => {
+    const code = f.http_status !== null ? `HTTP ${f.http_status}` : (f.error ?? "no response");
+    const lines = [
+      `#### \`${f.probe}\` — \`${f.url}\``,
+      ``,
+      `- Response code: \`${code}\``,
+      `- Latency: \`${f.latency_ms} ms\``,
+    ];
+    if (f.body !== null && f.body !== "") {
+      // ~~~ fencing: a body containing ``` must not break the issue markdown.
+      lines.push(`- Response body:`, ``, `~~~text`, f.body.replaceAll("~~~", "~ ~ ~"), `~~~`);
+    } else {
+      lines.push(`- Response body: _empty_`);
+    }
+    return lines.join("\n");
+  });
+  return ["### Requests behind this evaluation", "", ...sections].join("\n");
+}
+
+const probeNames = (failures: ProbeFailure[]): string[] => failures.map((f) => f.probe);
+
 async function openIncidentRow(
   db: D1Database,
   region: string,
@@ -37,13 +71,14 @@ async function openIncidentRow(
 export async function onComponentTransition(
   env: Env,
   now: number,
-  region: string,
-  component: string,
+  ref: ComponentRef,
   from: Status,
   to: Status,
-  probesFailing: string[],
+  failures: ProbeFailure[],
 ): Promise<{ durationMs?: number; resolved?: boolean }> {
   const db = env.DB;
+  const { region, component } = ref;
+  const failingJson = JSON.stringify(probeNames(failures));
   const open = await openIncidentRow(db, region, component);
 
   if (to === "DEGRADED" || to === "DOWN") {
@@ -51,15 +86,21 @@ export async function onComponentTransition(
       // Escalation (or de-escalation DOWN→DEGRADED, which keeps worst severity).
       if (to === "DOWN" && open.severity !== "DOWN") {
         await db
-          .prepare("UPDATE incidents SET severity = 'DOWN', escalated_at = ?, probes_failing = ? WHERE id = ?")
-          .bind(now, JSON.stringify(probesFailing), open.id)
+          .prepare("UPDATE incidents SET severity = 'DOWN', escalated_at = ?, probes_failing = ?, report = ? WHERE id = ?")
+          .bind(now, failingJson, failureReport(failures), open.id)
           .run();
-        await githubComment(env, open.github_issue, `Escalated to **DOWN** at ${iso(now)}. Failing probes: ${probesFailing.join(", ")}.`);
+        await githubRetitle(env, open.github_issue, incidentTitle(ref, "DOWN"));
+        await githubComment(
+          env,
+          open.github_issue,
+          [`Escalated to **DOWN** at ${iso(now)}.`, ``, failureReport(failures)].join("\n"),
+        );
         await githubSetLabels(env, open.github_issue, ["incident", "down"]);
+        await setIncidentFields(env, open.github_issue, { severity: severityOption("DOWN") ?? undefined });
       } else {
         await db
           .prepare("UPDATE incidents SET probes_failing = ? WHERE id = ?")
-          .bind(JSON.stringify(probesFailing), open.id)
+          .bind(failingJson, open.id)
           .run();
       }
       return {};
@@ -79,21 +120,40 @@ export async function onComponentTransition(
       const escalatedAt =
         recent.escalated_at ?? (to === "DOWN" ? now : null);
       await db
-        .prepare("UPDATE incidents SET resolved_at = NULL, severity = ?, probes_failing = ?, escalated_at = ? WHERE id = ?")
-        .bind(severity, JSON.stringify(probesFailing), escalatedAt, recent.id)
+        .prepare("UPDATE incidents SET resolved_at = NULL, severity = ?, probes_failing = ?, escalated_at = ?, report = ? WHERE id = ?")
+        .bind(severity, failingJson, escalatedAt, failureReport(failures), recent.id)
         .run();
-      await githubReopen(env, recent.github_issue, `Re-opened: ${component} entered ${to} again at ${iso(now)} (within the ${REOPEN_WINDOW_MS / 60_000}-minute re-open window).`);
+      await githubReopen(
+        env,
+        recent.github_issue,
+        [
+          `Re-opened: ${ref.componentName} entered ${to} again at ${iso(now)} (within the ${REOPEN_WINDOW_MS / 60_000}-minute re-open window).`,
+          ``,
+          failureReport(failures),
+        ].join("\n"),
+      );
       await githubSetLabels(env, recent.github_issue, ["incident", severity.toLowerCase()]);
+      await setIncidentFields(env, recent.github_issue, {
+        severity: severityOption(severity as Status) ?? undefined,
+        status: "Investigating",
+      });
       return {};
     }
 
     // New incident.
-    const issue = await githubOpenIssue(env, region, component, to, probesFailing, now);
+    const issue = await githubOpenIssue(env, ref, to, failures, now);
+    await setIncidentFields(env, issue?.number ?? null, {
+      severity: severityOption(to) ?? undefined,
+      status: "Investigating",
+      component: ref.componentName,
+      region: ref.regionName,
+      detectedAt: iso(now),
+    });
     await db
       .prepare(
-        "INSERT INTO incidents (region, component, severity, started_at, escalated_at, probes_failing, github_issue) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO incidents (region, component, severity, started_at, escalated_at, probes_failing, github_issue, github_url, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(region, component, to, now, to === "DOWN" ? now : null, JSON.stringify(probesFailing), issue)
+      .bind(region, component, to, now, to === "DOWN" ? now : null, failingJson, issue?.number ?? null, issue?.htmlUrl ?? null, failureReport(failures))
       .run();
     return {};
   }
@@ -113,6 +173,10 @@ export async function onComponentTransition(
       .filter(Boolean)
       .join("\n");
     await githubComment(env, open.github_issue, timeline);
+    await setIncidentFields(env, open.github_issue, {
+      status: "Resolved",
+      downtimeMinutes: Math.round(durationMs / 60_000),
+    });
     await githubClose(env, open.github_issue);
     return { durationMs, resolved: true };
   }
@@ -153,31 +217,37 @@ async function gh(
   }
 }
 
+/** Issue type (org-level) assigned by NAME; repos without it fall back to a plain issue. */
+const ISSUE_TYPE = "Incident";
+
 async function githubOpenIssue(
   env: Env,
-  region: string,
-  component: string,
+  ref: ComponentRef,
   severity: Status,
-  probesFailing: string[],
+  failures: ProbeFailure[],
   now: number,
-): Promise<number | null> {
-  const where = region === "global" ? component : `${component} (${region})`;
-  const res = await gh(env, "POST", "/issues", {
-    title: `[incident] ${where} is ${severity}`,
+): Promise<{ number: number; htmlUrl: string | null } | null> {
+  const payload = {
+    title: incidentTitle(ref, severity),
     body: [
-      `**${where}** entered **${severity}** at ${iso(now)}.`,
+      `**${ref.componentName}** (\`${ref.component}\`) on **${ref.regionName}** (\`${ref.region}\`) entered **${severity}** at ${iso(now)}.`,
       ``,
-      `- Region: \`${region}\``,
-      `- Component: \`${component}\``,
-      `- Failing probes: ${probesFailing.map((p) => `\`${p}\``).join(", ") || "n/a"}`,
+      failureReport(failures),
       ``,
       `_Opened automatically by wardnet-status; it will be closed when the component recovers._`,
     ].join("\n"),
     labels: ["incident", severity.toLowerCase()],
-  });
+  };
+  let res = await gh(env, "POST", "/issues", { ...payload, type: ISSUE_TYPE });
+  if (res?.status === 422) {
+    // Org/repo without the Incident issue type: a typed create is rejected
+    // outright, so retry untyped rather than losing the issue.
+    console.warn(`github issue type "${ISSUE_TYPE}" rejected — creating untyped issue`);
+    res = await gh(env, "POST", "/issues", payload);
+  }
   if (!res?.ok) return null;
-  const issue = (await res.json()) as { number: number };
-  return issue.number;
+  const issue = (await res.json()) as { number: number; html_url?: string };
+  return { number: issue.number, htmlUrl: issue.html_url ?? null };
 }
 
 async function githubComment(env: Env, issue: number | null, body: string): Promise<void> {
@@ -194,6 +264,11 @@ async function githubReopen(env: Env, issue: number | null, comment: string): Pr
   if (issue == null) return;
   await gh(env, "PATCH", `/issues/${issue}`, { state: "open" });
   await githubComment(env, issue, comment);
+}
+
+async function githubRetitle(env: Env, issue: number | null, title: string): Promise<void> {
+  if (issue == null) return;
+  await gh(env, "PATCH", `/issues/${issue}`, { title });
 }
 
 async function githubSetLabels(env: Env, issue: number | null, labels: string[]): Promise<void> {

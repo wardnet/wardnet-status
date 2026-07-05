@@ -1,4 +1,5 @@
 import { handleApi } from "./api";
+import { DEMO_TOPOLOGY_YAML } from "./demo-topology";
 import { d1TopologyStorage, metaUpsert } from "./storage";
 import { fetchTopology } from "./topology";
 import type { Env } from "./types";
@@ -38,9 +39,13 @@ export default {
 
 /** Every minute: fetch the Topology Config, fan one cycle out to each region's DO. */
 async function probeAllRegions(env: Env): Promise<void> {
+  // TOPOLOGY_URL=demo (local dev, .dev.vars): serve the bundled demo topology
+  // instead of fetching from GitHub — the cache/staleness path stays identical.
+  const demo = env.TOPOLOGY_URL === "demo";
   const { topology, stale } = await fetchTopology(
-    env.TOPOLOGY_URL,
+    demo ? "https://demo.invalid/topology.yaml" : env.TOPOLOGY_URL,
     d1TopologyStorage(env.DB),
+    demo ? async () => new Response(DEMO_TOPOLOGY_YAML) : fetch,
   );
   await metaUpsert(env.DB, "topology:stale", stale ? "1" : "0").run();
 

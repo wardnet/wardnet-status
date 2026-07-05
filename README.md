@@ -36,8 +36,11 @@ pnpm dev:page
 #   scenarios: ?scenario=operational|degraded|down-incident|stale-config|cold-start
 
 # Full stack: worker (local D1 + miniflare) + page proxying /api to it:
+cp worker/.dev.vars.example worker/.dev.vars # TOPOLOGY_URL=demo → bundled demo
+                                             # topology probing real public sites
 pnpm --filter @wardnet/status-worker migrate:local
-pnpm dev:worker                              # :8787
+pnpm dev:worker                              # :8787, cron testable
+curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"   # fire one probe cycle
 VITE_ENABLE_MSW=false pnpm dev:page          # /api proxied to :8787
 
 pnpm test          # worker unit tests + page component tests

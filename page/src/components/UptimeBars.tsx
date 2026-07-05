@@ -61,15 +61,25 @@ export function UptimeBars({
           />
         ))}
       </div>
-      <Text variant="caption" color="ink-3">
-        {overall !== null ? (
-          <>
-            <span className="mono">{overall}%</span> uptime, last {window} days
-          </>
-        ) : (
-          "Collecting…"
-        )}
-      </Text>
+      {overall !== null ? (
+        <div className="uptime-legend">
+          <Text variant="caption" color="ink-3">
+            {window} days ago
+          </Text>
+          <span className="uptime-legend-rule" />
+          <Text variant="caption" color="ink-3">
+            <span className="mono">{overall}%</span> uptime
+          </Text>
+          <span className="uptime-legend-rule" />
+          <Text variant="caption" color="ink-3">
+            Today
+          </Text>
+        </div>
+      ) : (
+        <Text variant="caption" color="ink-3">
+          Collecting…
+        </Text>
+      )}
     </div>
   );
 }

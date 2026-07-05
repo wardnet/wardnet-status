@@ -1,9 +1,9 @@
 import * as React from "react";
-import { Banner, Heading, Logo, Text, ThemeToggle } from "@wardnet/ui";
+import { Banner, Card, CardContent, CardHeader, CardTitle, Heading, Logo, Text, ThemeToggle } from "@wardnet/ui";
 import { fetchHistory, fetchIncidents, fetchStatus } from "./api/client";
 import type { HistoryResponse, Incident, StatusResponse } from "./api/types";
-import { ComponentCard } from "./components/ComponentCard";
 import { IncidentList } from "./components/IncidentList";
+import { ServiceRow } from "./components/ServiceRow";
 import { StatusPill } from "./components/StatusPill";
 import { useTheme } from "./theme/useTheme";
 
@@ -90,23 +90,28 @@ export function App() {
           </section>
 
           {status.regions.map((region) => (
-            <section className="region" key={region.slug}>
-              <div className="region-head">
-                <Heading level={2}>{region.display_name}</Heading>
-                <StatusPill status={region.status} />
-              </div>
-              <div className="component-grid">
-                {region.components.map((component) => (
-                  <ComponentCard
-                    key={component.name}
-                    component={component}
-                    region={region.slug}
-                    daily={history.daily}
-                    hourly={history.hourly}
-                  />
-                ))}
-              </div>
-            </section>
+            <Card key={region.slug}>
+              <CardHeader>
+                <div className="region-head">
+                  <CardTitle>{region.display_name}</CardTitle>
+                  <StatusPill status={region.status} />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="service-list">
+                  {region.components.map((component) => (
+                    <ServiceRow
+                      key={component.name}
+                      component={component}
+                      region={region.slug}
+                      daily={history.daily}
+                      hourly={history.hourly}
+                      incidents={incidents}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           ))}
 
           <IncidentList incidents={incidents} />

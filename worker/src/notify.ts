@@ -1,17 +1,27 @@
-import type { Env, Status } from "./types";
+import { incidentTitle } from "./incidents";
+import type { ComponentRef, Env, ProbeFailure, Status } from "./types";
 
-export interface Transition {
-  region: string;
-  component: string;
+export interface Transition extends ComponentRef {
   from: Status;
   to: Status;
-  probesFailing: string[];
+  failures: ProbeFailure[];
   /** Set on recovery: episode duration in ms. */
   durationMs?: number;
 }
 
+/** One line per failing request — notifications stay short; the issue has the bodies. */
+function failureLines(failures: ProbeFailure[]): string {
+  if (failures.length === 0) return "No request details captured.";
+  return failures
+    .map((f) => {
+      const code = f.http_status !== null ? `HTTP ${f.http_status}` : (f.error ?? "no response");
+      return `${f.probe}: ${code} in ${f.latency_ms} ms (${f.url})`;
+    })
+    .join("\n");
+}
+
 function describe(t: Transition): { title: string; body: string; priority: "warning" | "critical" | "resolved" } {
-  const where = t.region === "global" ? t.component : `${t.component} (${t.region})`;
+  const where = t.region === "global" ? `Service ${t.componentName}` : `Service ${t.componentName} on ${t.regionName}`;
   if (t.to === "UP") {
     const mins = t.durationMs ? Math.round(t.durationMs / 60_000) : null;
     return {
@@ -20,17 +30,10 @@ function describe(t: Transition): { title: string; body: string; priority: "warn
       priority: "resolved",
     };
   }
-  if (t.to === "DOWN") {
-    return {
-      title: `DOWN: ${where}`,
-      body: `Failing probes: ${t.probesFailing.join(", ") || "unknown"}.`,
-      priority: "critical",
-    };
-  }
   return {
-    title: `DEGRADED: ${where}`,
-    body: `Affected probes: ${t.probesFailing.join(", ") || "unknown"}.`,
-    priority: "warning",
+    title: incidentTitle(t, t.to),
+    body: failureLines(t.failures),
+    priority: t.to === "DOWN" ? "critical" : "warning",
   };
 }
 

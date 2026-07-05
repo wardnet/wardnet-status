@@ -17,6 +17,26 @@ export function worst(statuses: Status[]): Status {
   );
 }
 
+/** One probe request that contributed to a non-UP evaluation. */
+export interface ProbeFailure {
+  probe: ProbeName;
+  url: string;
+  http_status: number | null;
+  latency_ms: number;
+  /** "timeout", "HTTP 503", DNS error, … — null when the request got a 2xx (slow). */
+  error: string | null;
+  /** Truncated response body, when one was received. */
+  body: string | null;
+}
+
+/** Where an incident lives: slugs for storage/URLs, display names for humans. */
+export interface ComponentRef {
+  region: string;
+  component: string;
+  regionName: string;
+  componentName: string;
+}
+
 export interface ProbeSpec {
   url: string;
   timeout_ms: number;

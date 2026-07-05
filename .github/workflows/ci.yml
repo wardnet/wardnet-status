@@ -1,0 +1,38 @@
+# PR gate: type-check + unit tests for both workspaces on every pull request
+# (and on pushes to main, so the branch tip is always known-green). Deploys
+# live in deploy.yml; this workflow only decides whether a change is mergeable.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  # One in-flight run per branch/PR; newer pushes cancel superseded runs.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          # @wardnet/* resolve from GitHub Packages; the built-in token has packages:read.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Type-check
+        run: pnpm type-check
+      - name: Test
+        run: pnpm test

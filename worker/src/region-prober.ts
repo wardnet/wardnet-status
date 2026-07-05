@@ -4,7 +4,7 @@ import { notifyTransition } from "./notify";
 import { executeProbe, type ProbeResult } from "./prober";
 import { metaUpsert } from "./storage";
 import { PROBE_NAMES } from "./topology";
-import type { Env, ProbeName, RegionSpec, Status } from "./types";
+import type { Env, ProbeFailure, ProbeName, RegionSpec, Status } from "./types";
 import { worst } from "./types";
 
 /**
@@ -75,13 +75,13 @@ export class RegionProber implements DurableObject {
 
     // Evaluate ladders, collect component statuses and D1 statements.
     const nextComponent = new Map<string, Status>();
-    const failingProbes = new Map<string, string[]>();
+    const failingProbes = new Map<string, ProbeFailure[]>();
     const newLadders: Record<string, ProbeState> = {};
     const statements: D1PreparedStatement[] = [];
 
     for (const component of region.components) {
       const perProbeNext: Status[] = [];
-      const failing: string[] = [];
+      const failing: ProbeFailure[] = [];
 
       for (const probe of PROBE_NAMES) {
         const spec = component.probes[probe];
@@ -93,8 +93,26 @@ export class RegionProber implements DurableObject {
         const next = evaluate(prev, { ok: r.ok, slow: r.slow }, probe, spec);
         newLadders[key] = next;
 
+        // One line per probe request — the debugging trail for every cycle
+        // (visible in `wrangler dev` locally, `wrangler tail` in production).
+        console.log(
+          `probe ${region.slug}/${component.name}/${probe} ${spec.url} → ` +
+            `${r.httpStatus !== null ? `HTTP ${r.httpStatus}` : (r.error ?? "no response")} ` +
+            `${r.latencyMs}ms${r.slow ? " (slow)" : ""} ⇒ ${next.status}` +
+            (next.consecutiveFailures > 0 ? ` (${next.consecutiveFailures} consecutive failures)` : ""),
+        );
+
         perProbeNext.push(next.status);
-        if (next.status !== "UP" && next.status !== "UNKNOWN") failing.push(probe);
+        if (next.status !== "UP" && next.status !== "UNKNOWN") {
+          failing.push({
+            probe,
+            url: spec.url,
+            http_status: r.httpStatus,
+            latency_ms: r.latencyMs,
+            error: r.error,
+            body: r.bodySnippet,
+          });
+        }
 
         // Raw rows are for debugging incidents, not steady state: writing them
         // only when something is off keeps D1 row-writes far under the free cap.
@@ -147,11 +165,16 @@ export class RegionProber implements DurableObject {
       if (action === "skip") continue;
 
       try {
+        const ref = {
+          region: region.slug,
+          component: component.name,
+          regionName: region.display_name,
+          componentName: component.display_name,
+        };
         const { durationMs, resolved } = await onComponentTransition(
           this.env,
           now,
-          region.slug,
-          component.name,
+          ref,
           announced ?? "UNKNOWN",
           current,
           failingProbes.get(component.name) ?? [],
@@ -160,11 +183,10 @@ export class RegionProber implements DurableObject {
         // incident was actually resolved, which deserves its notification.
         if (action === "announce" || resolved) {
           await notifyTransition(this.env, {
-            region: region.slug,
-            component: component.name,
+            ...ref,
             from: announced ?? "UNKNOWN",
             to: current,
-            probesFailing: failingProbes.get(component.name) ?? [],
+            failures: failingProbes.get(component.name) ?? [],
             durationMs,
           });
         }

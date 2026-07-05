@@ -57,6 +57,28 @@ function baseStatus(): StatusResponse {
         components: [
           { name: "ddns", display_name: "DDNS", status: "UP", probes: probes("UP", 51) },
           { name: "tunneller", display_name: "Tunneller", status: "UP", probes: probes("UP", 64) },
+          { name: "relay", display_name: "Relay", status: "UP", probes: probes("UP", 47) },
+        ],
+      },
+      {
+        slug: "euw1",
+        display_name: "EU West 1",
+        status: "UP",
+        last_cycle: NOW - 25_000,
+        components: [
+          { name: "ddns", display_name: "DDNS", status: "UP", probes: probes("UP", 29) },
+          { name: "tunneller", display_name: "Tunneller", status: "UP", probes: probes("UP", 33) },
+          { name: "relay", display_name: "Relay", status: "UP", probes: probes("UP", 31) },
+        ],
+      },
+      {
+        slug: "apse1",
+        display_name: "Asia Pacific SE 1",
+        status: "UP",
+        last_cycle: NOW - 15_000,
+        components: [
+          { name: "ddns", display_name: "DDNS", status: "UP", probes: probes("UP", 112) },
+          { name: "tunneller", display_name: "Tunneller", status: "UP", probes: probes("UP", 98) },
         ],
       },
     ],
@@ -73,6 +95,12 @@ function history(): HistoryResponse {
     ["global", "tenants"],
     ["use1", "ddns"],
     ["use1", "tunneller"],
+    ["use1", "relay"],
+    ["euw1", "ddns"],
+    ["euw1", "tunneller"],
+    ["euw1", "relay"],
+    ["apse1", "ddns"],
+    ["apse1", "tunneller"],
   ];
   for (const [region, component] of components) {
     for (let h = 48; h >= 1; h--) {
@@ -112,6 +140,22 @@ function history(): HistoryResponse {
   return { hourly, daily };
 }
 
+function sampleReport(component: string, status: number): string {
+  return [
+    "### Requests behind this evaluation",
+    "",
+    `#### \`readyz\` — \`https://${component}.svc.use1.prd.wardnet.network:81/readyz\``,
+    "",
+    `- Response code: \`HTTP ${status}\``,
+    "- Latency: `4823 ms`",
+    "- Response body:",
+    "",
+    "~~~text",
+    '{"status":"unavailable","checks":{"db":"failing"}}',
+    "~~~",
+  ].join("\n");
+}
+
 const RESOLVED_INCIDENT: Incident = {
   id: 1,
   region: "use1",
@@ -122,6 +166,8 @@ const RESOLVED_INCIDENT: Incident = {
   resolved_at: NOW - 33 * 86_400_000 + 7_200_000,
   probes_failing: JSON.stringify(["readyz", "livez"]),
   github_issue: 12,
+  github_url: "https://github.com/wardnet/wardnet-status/issues/12",
+  report: sampleReport("ddns", 503),
 };
 
 export interface Scenario {
@@ -159,6 +205,8 @@ export function buildScenario(name: ScenarioName): Scenario {
           resolved_at: null,
           probes_failing: JSON.stringify(["healthz"]),
           github_issue: 27,
+          github_url: "https://github.com/wardnet/wardnet-status/issues/27",
+          report: sampleReport("tunneller", 500),
         },
       ];
       incidents.unshift(...status.incidents);
@@ -186,6 +234,8 @@ export function buildScenario(name: ScenarioName): Scenario {
           resolved_at: null,
           probes_failing: JSON.stringify(["livez", "readyz"]),
           github_issue: 31,
+          github_url: "https://github.com/wardnet/wardnet-status/issues/31",
+          report: sampleReport("ddns", 503),
         },
       ];
       incidents.unshift(...status.incidents);

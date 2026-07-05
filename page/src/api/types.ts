@@ -34,6 +34,10 @@ export interface Incident {
   /** JSON-encoded array of probe names. */
   probes_failing: string;
   github_issue: number | null;
+  /** html_url of the GitHub issue, stored at creation time. */
+  github_url: string | null;
+  /** Markdown description of the requests behind the evaluation (same text as the GitHub issue). */
+  report: string | null;
 }
 
 export interface StatusResponse {
