@@ -18,7 +18,10 @@ vocabulary: [CONTEXT.md](CONTEXT.md).
 - **Incidents** — one per episode: D1 row + auto-managed GitHub issue in this
   repo (opened at DEGRADED, escalated at DOWN, closed with a timeline on
   recovery; 10-minute re-open window).
-- **Notifications** — Telegram + ntfy on status transitions only.
+- **Paging** — Grafana IRM (Alertmanager webhook, `wardnet-synthetic-tests`
+  service): one alert per episode keyed `region/component`, DOWN=critical /
+  DEGRADED=warning, auto-resolved on recovery. Best-effort — never blocks the
+  incident record.
 - **Watchdog** — healthchecks.io dead-man's switch pinged after each successful
   cycle, alerting from outside both Cloudflare and Hetzner.
 - **Page** — React/Vite SPA on the Wardnet Forge design system
@@ -54,10 +57,13 @@ pnpm type-check
 2. Confirm the real `<service>.svc.<…>` health FQDNs in `topology.yaml`
    (see the TODO there) and that nginx `:81` is reachable publicly.
 3. Repo secrets (Actions): `CLOUDFLARE_API_TOKEN` (Workers + D1 edit),
-   `TELEGRAM_BOT_TOKEN`, `NTFY_TOPIC`, `GH_ISSUES_TOKEN` (fine-grained PAT,
-   this repo only, issues RW), `HEALTHCHECKS_PING_URL`.
+   `GRAFANA_IRM_WEBHOOK_URL` (Alertmanager inbound URL of the
+   `wardnet-synthetic-tests` IRM integration), `GH_ISSUES_TOKEN` (fine-grained
+   PAT, this repo only, issues RW), `HEALTHCHECKS_PING_URL`.
 4. Create one healthchecks.io check per region (`<url>/global`, `<url>/use1`),
-   schedule "every 1 min, grace 5 min", with Telegram/ntfy integrations.
+   schedule "every 1 min, grace 5 min", routed to the same Grafana IRM service
+   via healthchecks.io's own integration (keeps the watchdog independent of the
+   worker).
 5. Push to `main` — `.github/workflows/deploy.yml` tests, migrates, pushes
    secrets, and deploys. The custom domain `status.wardnet.network` binds on
    first deploy (zone must be on the same Cloudflare account).

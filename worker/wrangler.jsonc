@@ -48,13 +48,12 @@
     // Raw URL of the Topology Config on main — fetched (ETag-cached) every cycle.
     "TOPOLOGY_URL": "https://raw.githubusercontent.com/wardnet/wardnet-status/main/topology.yaml",
     // Repo that receives incident issues, "owner/name".
-    "GITHUB_REPO": "wardnet/wardnet-status",
-    "TELEGRAM_CHAT_ID": ""
+    "GITHUB_REPO": "wardnet/wardnet-status"
   }
 
   // Secrets (set via `wrangler secret put`, sourced from GitHub Actions secrets):
-  //   TELEGRAM_BOT_TOKEN  — bot for down/degraded notifications
-  //   NTFY_TOPIC          — ntfy.sh topic (the topic name IS the credential)
+  //   GRAFANA_IRM_WEBHOOK_URL — Alertmanager inbound URL of the
+  //                             "wardnet-synthetic-tests" Grafana IRM integration
   //   GH_ISSUES_TOKEN     — fine-grained PAT, this repo only, issues:rw
   //   HEALTHCHECKS_PING_URL — dead-man's switch base URL (per-region slug appended)
 }

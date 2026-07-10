@@ -92,7 +92,7 @@ function fakeDb() {
 
 function envWith(db: D1Database): Env {
   // No GH_ISSUES_TOKEN → GitHub calls are no-ops; we test the D1 lifecycle.
-  return { DB: db, GITHUB_REPO: "wardnet/wardnet-status", TELEGRAM_CHAT_ID: "" } as Env;
+  return { DB: db, GITHUB_REPO: "wardnet/wardnet-status" } as Env;
 }
 
 describe("incident presentation", () => {

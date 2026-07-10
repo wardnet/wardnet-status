@@ -20,6 +20,19 @@ interface IncidentRow {
   resolved_at: number | null;
   probes_failing: string;
   github_issue: number | null;
+  github_url: string | null;
+}
+
+/**
+ * What a transition tells the notifier: the episode's worst-so-far severity
+ * (so a DOWN→DEGRADED de-escalation still pages critical, matching the issue)
+ * and the GitHub issue URL to link from the alert.
+ */
+export interface TransitionOutcome {
+  durationMs?: number;
+  resolved?: boolean;
+  severity?: "DEGRADED" | "DOWN";
+  githubUrl?: string | null;
 }
 
 /** "Service Website on US East 1 is DOWN" (global components have no region suffix). */
@@ -75,7 +88,7 @@ export async function onComponentTransition(
   from: Status,
   to: Status,
   failures: ProbeFailure[],
-): Promise<{ durationMs?: number; resolved?: boolean }> {
+): Promise<TransitionOutcome> {
   const db = env.DB;
   const { region, component } = ref;
   const failingJson = JSON.stringify(probeNames(failures));
@@ -103,7 +116,9 @@ export async function onComponentTransition(
           .bind(failingJson, open.id)
           .run();
       }
-      return {};
+      // Worst-so-far: an escalation is DOWN, otherwise the incident's held severity.
+      const worst = to === "DOWN" ? "DOWN" : (open.severity as "DEGRADED" | "DOWN");
+      return { severity: worst, githubUrl: open.github_url };
     }
 
     // Re-open window: a fresh episode within 10 min continues the previous one.
@@ -137,7 +152,7 @@ export async function onComponentTransition(
         severity: severityOption(severity as Status) ?? undefined,
         status: "Investigating",
       });
-      return {};
+      return { severity, githubUrl: recent.github_url };
     }
 
     // New incident.
@@ -155,7 +170,7 @@ export async function onComponentTransition(
       )
       .bind(region, component, to, now, to === "DOWN" ? now : null, failingJson, issue?.number ?? null, issue?.htmlUrl ?? null, failureReport(failures))
       .run();
-    return {};
+    return { severity: to, githubUrl: issue?.htmlUrl ?? null };
   }
 
   if (to === "UP" && open) {
@@ -178,7 +193,14 @@ export async function onComponentTransition(
       downtimeMinutes: Math.round(durationMs / 60_000),
     });
     await githubClose(env, open.github_issue);
-    return { durationMs, resolved: true };
+    // Carry the episode's worst severity + issue link so the resolve alert's
+    // labels match the firing alert (Alertmanager correlates them to auto-resolve).
+    return {
+      durationMs,
+      resolved: true,
+      severity: open.severity as "DEGRADED" | "DOWN",
+      githubUrl: open.github_url,
+    };
   }
 
   return {};

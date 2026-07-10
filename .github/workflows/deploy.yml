@@ -64,8 +64,7 @@ jobs:
         # wrangler secret put reads the value from stdin; skipped when unset.
         run: |
           push() { [ -n "$2" ] && printf '%s' "$2" | pnpm --filter @wardnet/status-worker exec wrangler secret put "$1" || echo "skip $1"; }
-          push TELEGRAM_BOT_TOKEN "${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          push NTFY_TOPIC "${{ secrets.NTFY_TOPIC }}"
+          push GRAFANA_IRM_WEBHOOK_URL "${{ secrets.GRAFANA_IRM_WEBHOOK_URL }}"
           push GH_ISSUES_TOKEN "${{ secrets.GH_ISSUES_TOKEN }}"
           push HEALTHCHECKS_PING_URL "${{ secrets.HEALTHCHECKS_PING_URL }}"
         env:

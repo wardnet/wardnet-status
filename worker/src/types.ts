@@ -70,10 +70,9 @@ export interface Env {
   ASSETS: Fetcher;
   TOPOLOGY_URL: string;
   GITHUB_REPO: string;
-  TELEGRAM_CHAT_ID: string;
   // Secrets
-  TELEGRAM_BOT_TOKEN?: string;
-  NTFY_TOPIC?: string;
+  /** Alertmanager inbound URL of the wardnet-synthetic-tests Grafana IRM integration. */
+  GRAFANA_IRM_WEBHOOK_URL?: string;
   GH_ISSUES_TOKEN?: string;
   HEALTHCHECKS_PING_URL?: string;
 }

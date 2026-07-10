@@ -171,7 +171,7 @@ export class RegionProber implements DurableObject {
           regionName: region.display_name,
           componentName: component.display_name,
         };
-        const { durationMs, resolved } = await onComponentTransition(
+        const { durationMs, resolved, severity, githubUrl } = await onComponentTransition(
           this.env,
           now,
           ref,
@@ -187,6 +187,8 @@ export class RegionProber implements DurableObject {
             from: announced ?? "UNKNOWN",
             to: current,
             failures: failingProbes.get(component.name) ?? [],
+            severity,
+            githubUrl,
             durationMs,
           });
         }
