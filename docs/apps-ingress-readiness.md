@@ -1,7 +1,16 @@
-# Working note — App (SPA) ingress-readiness monitoring
+# Working note — consumer-path monitoring (SPA ingress-readiness + API-gateway edge)
 
 Status: **design agreed, implementation deferred.** Paused here to ship + test the
 first live service. This note is the resume point.
+
+Two related gaps, one shared enabler. Today we probe services at their **back door**
+(direct `:81` health endpoints). This note covers two ways to also probe the
+**front door** — the path real consumers use:
+1. **SPA ingress-readiness** — React apps served through our nginx ingress.
+2. **API-gateway edge** — backend services reached through the API GW, not directly.
+
+Both ride on the same load-bearing change: **assertion-aware probes** (`expect_status`
+et al.), so implementing one nearly gives the other for free.
 
 ## Problem
 
@@ -53,16 +62,65 @@ no pipeline benefit.
 ## The load-bearing code change
 
 Topology is the easy part. The crux is **teaching `executeProbe` (worker/src/prober.ts)
-optional content assertions**, defaulting to today's 2xx-only behavior so every existing
-service probe is untouched:
+optional assertions**, defaulting to today's 2xx-only behavior so every existing service
+probe is untouched:
 
+- `expect_status` (e.g. `401` for the API-gateway edge check — the code the *service*
+  returns through the GW; also lets a check accept a non-2xx as healthy)
 - `expect_content_type` (e.g. `text/html`)
 - `expect_body_contains` (substring marker in the shell)
 - `expect_json` (field match, e.g. `app == "flint"`)
 
+**Guardrail:** `502/503/504` and timeouts must **always fail** regardless of
+`expect_status` — through a gateway/ingress those specifically mean "upstream
+unreachable," the exact failure these checks exist to catch, so they must never be
+whitelisted by a loose `expect_status`.
+
 Then extend the Zod probe schema in `worker/src/topology.ts` to accept these optional
 assertion fields, and add `kind: service | app` to the component schema (default
 `service`).
+
+## API-gateway edge monitoring (consumer path for services)
+
+**Gap:** service probes hit the service's back door (direct `:81`). Consumers hit the
+**API GW**. The two fail independently — a green direct health check with a broken GW
+hop = "green dashboard, angry customers." We want to also probe *through* the GW.
+
+**Key fact about our setup:** our API GW is a **lightweight nginx doing routing only —
+no auth.** So a `401` on an auth-protected endpoint **comes from the service itself,
+through the GW.** That makes the 401 a genuine **end-to-end signal**: DNS → nginx →
+routing → *upstream service reached* → service's own auth answered. (The usual gotcha —
+gateways rejecting auth at the edge *before* proxying upstream, so a 401 proves nothing
+about upstream — does **not** apply to us, because our GW doesn't do auth.)
+
+**Design (agreed):**
+
+- Probe consumer endpoint(s) through the GW, asserting the expected status
+  (`expect_status: 401` for us). `2xx`/`401` → healthy; `5xx`/`502`/`503`/`504`/timeout
+  → the upstream-unreachable failure we're catching.
+- Model it as a **separate component** — e.g. `tenants-edge` /
+  "Identity & Billing (via gateway)" — **not** extra probes crammed onto the closed
+  `livez/readyz/healthz` triad. Two reasons: (1) the GW check is a different *vantage*
+  (external, through the edge), and (2) a separate component **localizes the fault** —
+  direct `:81` UP + edge DOWN tells you "service healthy, edge/routing broken," which is
+  the whole point.
+- **Failure drives the existing ladder**, not an instant hard-DOWN: 1 fail = UP, 2 =
+  DEGRADED, 3+ = DOWN, slow-but-correct = DEGRADED. Worst-wins aggregation already gives
+  the "any endpoint fails → component down" behavior without special-casing.
+- Prefer endpoints with a **stable status** — `expect: 401` pins you to that endpoint
+  keeping its 401; if it's made public or the route is removed, the probe breaks. A
+  deterministic route is nicer where available.
+
+**Open decision — endpoint count:**
+
+- **1–3 representative endpoints per service** → fits the current triad on one edge
+  component, minimal change (just `expect_status`). **Recommended starting point** — one
+  representative 401 check already catches GW-down / route-broken / upstream-unreachable,
+  ~90% of the value.
+- **Many arbitrary consumer endpoints** (catch one misrouted path among dozens) → the
+  fixed 3-name triad won't hold them; would need a **flexible named-check list**
+  `{ path, expect_status }` on edge components, worst-wins. Bigger schema change — only
+  graduate to this if a single-route failure actually slips past the representative check.
 
 ## Deliberately deferred (even within Option A)
 
@@ -73,10 +131,14 @@ assertion fields, and add `kind: service | app` to the component schema (default
 
 ## Current state / next steps
 
-- ✅ First live service wired: `tenants` → **Accounts & Billing**, global component,
-  `http://tenants.svc.prd.wardnet.network:81/{livez,readyz,healthz}`. All three probes
-  confirmed returning 200 (healthz reports `jwt_keys`, `listener`, `stripe`). Topology
-  validated; this is the change to merge + test.
-- ⏭️ Next session: implement Option A — assertion-aware `executeProbe`, `kind` +
-  assertion fields in the topology schema, then add the first app entry with its two
-  probes.
+- ✅ First live service **deployed and monitored**: `tenants` → **Identity & Billing**,
+  global component, `http://tenants.svc.prd.wardnet.network:81/{livez,readyz,healthz}`.
+  All three probes UP in production (healthz reports `jwt_keys`, `listener`, `stripe`).
+  Status page live at https://status.wardnet.network (custom domain, D1, cron, Grafana
+  IRM paging, healthchecks.io dead-man's switch all wired).
+- ⏭️ Next session: implement the shared enabler — assertion-aware `executeProbe`
+  (`expect_status` first, it unlocks both features), plus `kind` + assertion fields in
+  the topology schema. Then:
+  - **API-gateway edge** — add a `tenants-edge` component with the 401-through-GW check
+    (simplest first win, one representative endpoint).
+  - **SPA ingress-readiness** — add the first `kind: app` entry with its two probes.
