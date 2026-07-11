@@ -1,0 +1,182 @@
+/* Page-level layout only — all colors/typography come from @wardnet tokens. */
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.overall {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.region-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.service-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.service-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.service-row:last-child {
+  padding-bottom: 0;
+}
+
+.service-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.service-head-spacer {
+  flex: 1;
+}
+
+.service-toggle {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.service-toggle:hover {
+  border-color: var(--accent);
+}
+
+.service-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.uptime {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uptime-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uptime-legend-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.uptime-bars {
+  display: flex;
+  gap: 2px;
+}
+
+.uptime-cell {
+  flex: 1 1 0;
+  height: 24px;
+  min-width: 2px;
+  border-radius: 1px;
+}
+
+.latency-chart svg {
+  width: 100%;
+  height: 96px;
+  display: block;
+}
+
+.incident-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.incident-row {
+  /* Fixed pill column: "Resolved"/"Down"/"Degraded" render at different
+     widths, so a plain flex row would start every title at a different x. */
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+/* The pill stretches to the full 96px column — center its label so the
+   uniform-width pills don't read as left-crooked. */
+.incident-row > :first-child {
+  justify-content: center;
+  text-align: center;
+}
+
+.incident-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0; /* let the report pre shrink instead of overflowing the card */
+}
+
+.incident-report-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.incident-report {
+  margin: 8px 0 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}

@@ -1,0 +1,21 @@
+# Local development overrides (copy to .dev.vars — it is gitignored).
+# TOPOLOGY_URL=demo probes the bundled demo topology (real public endpoints,
+# plus one always-DEGRADED and one always-DOWN component) instead of fetching
+# topology.yaml from GitHub main.
+TOPOLOGY_URL=demo
+
+# --- Optional: test the full GitHub issues integration locally ---
+# Point at a personal sandbox repo (NOT wardnet/wardnet-status) and use a
+# fine-grained PAT scoped to that repo only, with Issues read/write.
+# With these set, the demo's "Legacy Service" opens a real issue after
+# ~3 cycles and escalates it to DOWN; edit its URL in src/demo-topology.ts
+# to a real site afterwards to watch the issue get closed on recovery.
+# GITHUB_REPO=<your-username>/<sandbox-repo>
+# GH_ISSUES_TOKEN=github_pat_...
+
+# --- Optional: paging (Grafana IRM) ---
+# Alertmanager inbound URL of the "wardnet-synthetic-tests" Grafana IRM
+# integration. When set, status transitions fire one alert per episode
+# (DOWN=critical, DEGRADED=warning), auto-resolving on recovery. Best-effort:
+# leaving it unset just skips paging, everything else works.
+# GRAFANA_IRM_WEBHOOK_URL=https://<stack>.grafana.net/oncall/...

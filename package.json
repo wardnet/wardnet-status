@@ -1,0 +1,14 @@
+{
+  "name": "wardnet-status",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "build": "pnpm --filter @wardnet/status-page build && pnpm --filter @wardnet/status-worker build",
+    "test": "pnpm -r test",
+    "type-check": "pnpm -r type-check",
+    "dev:page": "pnpm --filter @wardnet/status-page dev",
+    "dev:worker": "pnpm --filter @wardnet/status-worker dev",
+    "deploy": "pnpm build && pnpm --filter @wardnet/status-worker deploy"
+  }
+}

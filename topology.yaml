@@ -1,0 +1,44 @@
+# Topology Config — the single source of truth for what wardnet-status monitors.
+#
+# This file is DATA, not code: the prober fetches it raw from `main` (ETag-cached)
+# on every probe cycle. Adding a region, component, or probe is a merge to main —
+# it goes live on the next cycle, with NO worker redeploy.
+#
+# Probe vocabulary is exactly three named URL checks, each optional per component:
+#   livez   — process alive, zero dependencies        (failing → can reach DOWN)
+#   readyz  — critical-path deps, can serve right now (failing → can reach DOWN)
+#   healthz — aggregate incl. non-critical indicators (failing → caps at DEGRADED)
+#
+# Status ladder per probe (consecutive failures): 1 → UP, 2 → DEGRADED, 3+ → DOWN.
+# Recovery: 2 consecutive successes → UP. Slow-but-successful (> degraded_latency_ms)
+# contributes DEGRADED only.
+
+defaults:
+  timeout_ms: 5000
+  degraded_latency_ms: 1000
+  failures_to_degraded: 2
+  failures_to_down: 3
+  successes_to_up: 2
+
+# Components that exist once, not per region. Probed by a dedicated global prober.
+global:
+  location_hint: weur
+  components:
+    - name: tenants
+      display_name: Identity & Billing
+      probes:
+        livez:
+          url: http://tenants.svc.prd.wardnet.network:81/livez
+        readyz:
+          url: http://tenants.svc.prd.wardnet.network:81/readyz
+        healthz:
+          url: http://tenants.svc.prd.wardnet.network:81/healthz
+
+# Per-region components. Empty for now — add a region here only once its probes are
+# confirmed live, so we never page on services that aren't up yet.
+#
+# Slugs match wardnet-infrastructure resources/prd/regions.yaml.
+# location_hint is a Cloudflare Durable Object location hint (best-effort vantage).
+# Health checks are Host-demuxed by `<service>.svc.<region>.prd.<base>` FQDNs on the
+# edge ingress health port (:81) — confirm each derived FQDN before adding it.
+regions: []

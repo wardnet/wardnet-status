@@ -1,0 +1,67 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wardnet-status",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-01",
+	// The built status page (page/ workspace → dist) ships as static assets from
+	// this same Worker: one deploy, no CORS, /api/* handled by the Worker first.
+	"assets": {
+		"directory": "../page/dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		// /__scheduled must reach the runtime for `wrangler dev --test-scheduled`.
+		"run_worker_first": [
+			"/api/*",
+			"/__scheduled"
+		]
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "REGION_PROBER",
+				"class_name": "RegionProber"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"RegionProber"
+			]
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "wardnet-status",
+			"database_id": "59ac7fe0-d93f-4e4e-bb51-c73c937eedc9",
+			"migrations_dir": "migrations"
+		}
+	],
+	"triggers": {
+		// Every minute: fetch topology, fan out one probe cycle per region DO.
+		// 03:17 UTC daily: prune raw results (14d) and hourly rollups (90d).
+		"crons": [
+			"* * * * *",
+			"17 3 * * *"
+		]
+	},
+	"routes": [
+		{
+			"pattern": "status.wardnet.network",
+			"custom_domain": true
+		}
+	],
+	"vars": {
+		// Raw URL of the Topology Config on main — fetched (ETag-cached) every cycle.
+		"TOPOLOGY_URL": "https://raw.githubusercontent.com/wardnet/wardnet-status/main/topology.yaml",
+		// Repo that receives incident issues, "owner/name".
+		"GITHUB_REPO": "wardnet/wardnet-status"
+	}
+	// Secrets (set via `wrangler secret put`, sourced from GitHub Actions secrets):
+	//   GRAFANA_IRM_WEBHOOK_URL — Alertmanager inbound URL of the
+	//                             "wardnet-synthetic-tests" Grafana IRM integration
+	//   GH_ISSUES_TOKEN     — fine-grained PAT, this repo only, issues:rw
+	//   HEALTHCHECKS_PING_URL — dead-man's switch base URL (per-region slug appended)
+}
