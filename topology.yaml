@@ -25,42 +25,20 @@ global:
   location_hint: weur
   components:
     - name: tenants
-      display_name: Tenants (accounts & identity)
+      display_name: Identity & Billing
       probes:
         livez:
-          url: http://account.wardnet.network:81/livez
+          url: http://tenants.svc.prd.wardnet.network:81/livez
         readyz:
-          url: http://account.wardnet.network:81/readyz
+          url: http://tenants.svc.prd.wardnet.network:81/readyz
         healthz:
-          url: http://account.wardnet.network:81/healthz
+          url: http://tenants.svc.prd.wardnet.network:81/healthz
 
+# Per-region components. Empty for now — add a region here only once its probes are
+# confirmed live, so we never page on services that aren't up yet.
+#
 # Slugs match wardnet-infrastructure resources/prd/regions.yaml.
 # location_hint is a Cloudflare Durable Object location hint (best-effort vantage).
-#
-# TODO(before first deploy): confirm the full derived `<service>.svc.<…>` FQDNs —
-# the infra repo elides them (`ddns.svc.<…>`); the values below assume the
-# `svc.<region>.prd.<base_domain>` derivation. Health checks are Host-demuxed by
-# these FQDNs on the edge ingress health port (:81).
-regions:
-  - slug: use1
-    display_name: US East 1
-    location_hint: weur
-    components:
-      - name: ddns
-        display_name: DDNS
-        probes:
-          livez:
-            url: http://ddns.svc.use1.prd.wardnet.network:81/livez
-          readyz:
-            url: http://ddns.svc.use1.prd.wardnet.network:81/readyz
-          healthz:
-            url: http://ddns.svc.use1.prd.wardnet.network:81/healthz
-      - name: tunneller
-        display_name: Tunneller
-        probes:
-          livez:
-            url: http://tunneller.svc.use1.prd.wardnet.network:81/livez
-          readyz:
-            url: http://tunneller.svc.use1.prd.wardnet.network:81/readyz
-          healthz:
-            url: http://tunneller.svc.use1.prd.wardnet.network:81/healthz
+# Health checks are Host-demuxed by `<service>.svc.<region>.prd.<base>` FQDNs on the
+# edge ingress health port (:81) — confirm each derived FQDN before adding it.
+regions: []
