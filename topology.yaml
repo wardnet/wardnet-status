@@ -34,6 +34,19 @@ global:
         healthz:
           url: http://tenants.svc.prd.wardnet.network:81/healthz
 
+    # Consumer path: the tenants service as reached through the public API gateway
+    # (lightweight nginx, routing only — no auth). An unauthenticated /v1/me returns
+    # 401 FROM THE SERVICE through the GW, so 401 is the healthy end-to-end signal;
+    # a 502/timeout means the GW can't reach tenants (the "green back door, broken
+    # front door" case this component exists to surface). Modeled separately from
+    # `tenants` so the status page localizes the fault to the edge vs the service.
+    - name: tenants-edge
+      display_name: Identity & Billing (via API Gateway)
+      probes:
+        readyz:
+          url: https://api.wardnet.network/v1/me
+          expect_status: 401
+
 # Per-region components. Empty for now — add a region here only once its probes are
 # confirmed live, so we never page on services that aren't up yet.
 #

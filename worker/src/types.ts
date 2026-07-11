@@ -44,6 +44,14 @@ export interface ProbeSpec {
   failures_to_degraded: number;
   failures_to_down: number;
   successes_to_up: number;
+  /**
+   * Expected HTTP status for "ok". Default (undefined) = any 2xx. Set it to accept a
+   * specific non-2xx as healthy — e.g. `401` when probing a service through the API GW,
+   * where the 401 is the service (not the GW) answering, proving the consumer path.
+   * 502/503/504 always fail regardless (see prober.ts): through a gateway/ingress those
+   * mean "upstream unreachable", the exact failure these checks exist to catch.
+   */
+  expect_status?: number;
 }
 
 export interface ComponentSpec {
