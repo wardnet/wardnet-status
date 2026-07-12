@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executeProbe, executeSpaProbe, extractAssetUrls } from "../src/prober";
+import { executeProbe, executeSpaProbe, extractAssetRefs } from "../src/prober";
 import type { ProbeSpec } from "../src/types";
 
 const spec = (over: Partial<ProbeSpec> = {}): ProbeSpec => ({
@@ -77,25 +77,35 @@ describe("executeProbe", () => {
   });
 });
 
-describe("extractAssetUrls", () => {
-  it("pulls script src + stylesheet href, resolves absolute, ignores favicons", () => {
+describe("extractAssetRefs", () => {
+  it("tags scripts vs stylesheets, resolves absolute, ignores favicons", () => {
     const html = `
       <link rel="icon" href="/favicon.png">
       <link rel="stylesheet" href="/assets/x.css">
       <script type="module" crossorigin src="/assets/x.js"></script>`;
-    expect(extractAssetUrls(html, "https://acc.test/")).toEqual([
-      "https://acc.test/assets/x.js",
-      "https://acc.test/assets/x.css",
+    expect(extractAssetRefs(html, "https://acc.test/")).toEqual([
+      { url: "https://acc.test/assets/x.js", kind: "module" },
+      { url: "https://acc.test/assets/x.css", kind: "style" },
+    ]);
+  });
+
+  it("distinguishes module from classic scripts", () => {
+    const html = `<script type="module" src="/m.js"></script><script src="/c.js"></script>`;
+    expect(extractAssetRefs(html, "https://acc.test/")).toEqual([
+      { url: "https://acc.test/m.js", kind: "module" },
+      { url: "https://acc.test/c.js", kind: "script" },
     ]);
   });
 
   it("dedupes and skips malformed / non-http refs", () => {
     const html = `<script src="/a.js"></script><script src="/a.js"></script><script src="data:,x"></script>`;
-    expect(extractAssetUrls(html, "https://acc.test/")).toEqual(["https://acc.test/a.js"]);
+    expect(extractAssetRefs(html, "https://acc.test/")).toEqual([
+      { url: "https://acc.test/a.js", kind: "script" },
+    ]);
   });
 
   it("no assets → empty", () => {
-    expect(extractAssetUrls("<html><body>hi</body></html>", "https://acc.test/")).toEqual([]);
+    expect(extractAssetRefs("<html><body>hi</body></html>", "https://acc.test/")).toEqual([]);
   });
 });
 
@@ -103,6 +113,7 @@ describe("executeSpaProbe", () => {
   const BASE = "https://account.wardnet.network/";
   const JS = "https://account.wardnet.network/assets/index-abc.js";
   const CSS = "https://account.wardnet.network/assets/index-def.css";
+  // Vite emits a type="module" entry script — subject to the strict browser MIME check.
   const SHELL = `<!doctype html><html><head><title>My Account</title>
     <link rel="stylesheet" href="/assets/index-def.css">
     <script type="module" crossorigin src="/assets/index-abc.js"></script>
@@ -124,17 +135,33 @@ describe("executeSpaProbe", () => {
 
   const spaSpec = spec({ url: BASE, check: "spa" });
 
-  it("healthy: shell html + assets served as text/plain (this ingress's real MIME) → ok", async () => {
+  it("healthy: module served as JS MIME, css lenient → ok", async () => {
     const r = await executeSpaProbe(
       spaSpec,
       routed({
         [BASE]: { ct: "text/html", body: SHELL },
-        [JS]: { ct: "text/plain" }, // asserting 'application/javascript' would false-fail here
-        [CSS]: { ct: "text/plain" },
+        [JS]: { ct: "application/javascript" },
+        [CSS]: { ct: "text/plain" }, // stylesheets aren't strictly MIME-checked by browsers
       }),
     );
     expect(r.ok).toBe(true);
     expect(r.error).toBeNull();
+  });
+
+  it("module script served as text/plain → not ok (browsers refuse to execute it)", async () => {
+    // The real account-app bug: 200 everywhere, but the module is text/plain → white screen.
+    const r = await executeSpaProbe(
+      spaSpec,
+      routed({
+        [BASE]: { ct: "text/html", body: SHELL },
+        [JS]: { ct: "text/plain" },
+        [CSS]: { ct: "text/css" },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain(JS);
+    expect(r.error).toContain("text/plain");
+    expect(r.error).toContain("refuse to execute");
   });
 
   it("broken deploy: a missing asset falls back to text/html → not ok, names the asset", async () => {
@@ -143,12 +170,24 @@ describe("executeSpaProbe", () => {
       routed({
         [BASE]: { ct: "text/html", body: SHELL },
         [JS]: { ct: "text/html", body: SHELL }, // missing → nginx served index.html
-        [CSS]: { ct: "text/plain" },
+        [CSS]: { ct: "text/css" },
       }),
     );
     expect(r.ok).toBe(false);
     expect(r.error).toContain(JS);
     expect(r.error).toContain("text/html");
+  });
+
+  it("classic (non-module) script as text/plain → ok (browsers tolerate it)", async () => {
+    const CLASSIC = "https://account.wardnet.network/legacy.js";
+    const r = await executeSpaProbe(
+      spec({ url: BASE, check: "spa" }),
+      routed({
+        [BASE]: { ct: "text/html", body: `<html><head><script src="/legacy.js"></script></head></html>` },
+        [CLASSIC]: { ct: "text/plain" },
+      }),
+    );
+    expect(r.ok).toBe(true);
   });
 
   it("shell not HTML (e.g. gateway error) → not ok", async () => {
@@ -166,7 +205,7 @@ describe("executeSpaProbe", () => {
   it("executeProbe dispatches check:'spa' to the SPA executor", async () => {
     const r = await executeProbe(
       spaSpec,
-      routed({ [BASE]: { ct: "text/html", body: SHELL }, [JS]: { ct: "text/plain" }, [CSS]: { ct: "text/plain" } }),
+      routed({ [BASE]: { ct: "text/html", body: SHELL }, [JS]: { ct: "application/javascript" }, [CSS]: { ct: "text/css" } }),
     );
     expect(r.ok).toBe(true);
   });
