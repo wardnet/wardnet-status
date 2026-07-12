@@ -19,6 +19,23 @@ const BODY_SNIPPET_MAX = 600;
  */
 const ALWAYS_FAIL = new Set([502, 503, 504]);
 
+const PROBE_HEADERS = { "user-agent": "wardnet-status-prober/1" };
+
+// The Workers RequestInit type omits `cache`, though the runtime honours it.
+type ProbeInit = RequestInit & { cache: "no-store" };
+
+/**
+ * Fetch options shared by every probe. `cache: "no-store"` is load-bearing: a monitor
+ * must ALWAYS hit origin — a cached copy could read green while origin is down, or (with
+ * an immutable hashed asset) stay red after a fix that reuses the same URL.
+ */
+const probeInit = (timeoutMs: number): ProbeInit => ({
+  redirect: "manual",
+  cache: "no-store",
+  signal: AbortSignal.timeout(timeoutMs),
+  headers: PROBE_HEADERS,
+});
+
 /** Execute one probe: 2xx within timeout = ok; ok beyond the latency budget = slow. */
 export async function executeProbe(
   spec: ProbeSpec,
@@ -29,11 +46,7 @@ export async function executeProbe(
 
   const started = Date.now();
   try {
-    const res = await fetcher(spec.url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(spec.timeout_ms),
-      headers: { "user-agent": "wardnet-status-prober/1" },
-    });
+    const res = await fetcher(spec.url, probeInit(spec.timeout_ms));
     const latencyMs = Date.now() - started;
     const ok =
       spec.expect_status != null
@@ -76,8 +89,6 @@ export async function executeProbe(
     };
   }
 }
-
-const PROBE_HEADERS = { "user-agent": "wardnet-status-prober/1" };
 
 export type AssetKind = "module" | "script" | "style";
 export interface AssetRef {
@@ -150,11 +161,7 @@ export async function executeSpaProbe(
   const elapsed = () => Date.now() - started;
   try {
     // 1. Shell must be a real HTML document.
-    const shell = await fetcher(spec.url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(spec.timeout_ms),
-      headers: PROBE_HEADERS,
-    });
+    const shell = await fetcher(spec.url, probeInit(spec.timeout_ms));
     const shellCt = shell.headers.get("content-type") ?? "";
     if (!(shell.status >= 200 && shell.status < 300 && shellCt.includes("text/html"))) {
       return {
@@ -185,11 +192,7 @@ export async function executeSpaProbe(
     const results = await Promise.all(
       assets.map(async ({ url, kind }) => {
         try {
-          const res = await fetcher(url, {
-            redirect: "manual",
-            signal: AbortSignal.timeout(spec.timeout_ms),
-            headers: PROBE_HEADERS,
-          });
+          const res = await fetcher(url, probeInit(spec.timeout_ms));
           const ct = (res.headers.get("content-type") ?? "").toLowerCase();
           await res.body?.cancel();
           let why: string | null = null;

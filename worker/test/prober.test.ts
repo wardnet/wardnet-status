@@ -210,3 +210,33 @@ describe("executeSpaProbe", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("probes bypass cache (a monitor must hit origin, never a cached copy)", () => {
+  // `cache` isn't on the Workers RequestInit type (runtime supports it, types lag),
+  // so capture the init loosely to read it back.
+  it("executeProbe requests with cache: no-store", async () => {
+    const inits: Record<string, unknown>[] = [];
+    const f: typeof fetch = (async (_u: string, init: Record<string, unknown>) => {
+      inits.push(init);
+      return new Response("", { status: 200 });
+    }) as unknown as typeof fetch;
+    await executeProbe(spec(), f);
+    expect(inits[0]?.cache).toBe("no-store");
+  });
+
+  it("executeSpaProbe requests shell and assets with cache: no-store", async () => {
+    const BASE = "https://acc.test/";
+    const JS = "https://acc.test/a.js";
+    const SHELL = `<html><head><script type="module" src="/a.js"></script></head></html>`;
+    const seen: Record<string, Record<string, unknown>> = {};
+    const f: typeof fetch = (async (u: string, init: Record<string, unknown>) => {
+      seen[u] = init;
+      return u === BASE
+        ? new Response(SHELL, { status: 200, headers: { "content-type": "text/html" } })
+        : new Response("", { status: 200, headers: { "content-type": "application/javascript" } });
+    }) as unknown as typeof fetch;
+    await executeSpaProbe(spec({ url: BASE, check: "spa" }), f);
+    expect(seen[BASE]?.cache).toBe("no-store");
+    expect(seen[JS]?.cache).toBe("no-store");
+  });
+});
