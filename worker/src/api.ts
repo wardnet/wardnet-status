@@ -135,36 +135,91 @@ async function getStatus(env: Env) {
   };
 }
 
-async function getHistory(env: Env, params: URLSearchParams) {
+const DAY_MS = 86_400_000;
+
+interface RollupCounts {
+  region: string;
+  component: string;
+  probe: string;
+  samples: number;
+  up: number;
+  degraded: number;
+  down: number;
+  latency_sum: number;
+  latency_max: number;
+}
+interface HourlyRow extends RollupCounts {
+  hour_ts: number;
+}
+interface DailyRow extends RollupCounts {
+  day_ts: number;
+}
+
+/**
+ * Fold hourly rollups into per-UTC-day rollups, summing counts and taking the
+ * max latency, keyed by (day, region, component, probe). Used to synthesize the
+ * most recent days live from hourly, because materialized daily rows only exist
+ * for days the nightly job has already processed.
+ */
+export function aggregateHourlyToDaily(rows: HourlyRow[]): DailyRow[] {
+  const byKey = new Map<string, DailyRow>();
+  for (const r of rows) {
+    const day_ts = r.hour_ts - (r.hour_ts % DAY_MS);
+    const key = `${day_ts}|${r.region}|${r.component}|${r.probe}`;
+    const agg = byKey.get(key);
+    if (!agg) {
+      byKey.set(key, {
+        day_ts,
+        region: r.region,
+        component: r.component,
+        probe: r.probe,
+        samples: r.samples,
+        up: r.up,
+        degraded: r.degraded,
+        down: r.down,
+        latency_sum: r.latency_sum,
+        latency_max: r.latency_max,
+      });
+    } else {
+      agg.samples += r.samples;
+      agg.up += r.up;
+      agg.degraded += r.degraded;
+      agg.down += r.down;
+      agg.latency_sum += r.latency_sum;
+      agg.latency_max = Math.max(agg.latency_max, r.latency_max);
+    }
+  }
+  return [...byKey.values()];
+}
+
+async function getHistory(env: Env, params: URLSearchParams, now = Date.now()) {
   const hourlyHours = intParam(params.get("hours"), 48, 24 * 14);
   const dailyDays = intParam(params.get("days"), 90, 365);
-  const now = Date.now();
-  const todayStart = now - (now % 86_400_000);
+  const todayStart = now - (now % DAY_MS);
+  // The nightly job materializes a completed day's rollup_daily row only at
+  // 03:17 UTC. So between 00:00 and that run, YESTERDAY has no daily row yet —
+  // and if we only synthesize *today*, yesterday's outages vanish from the
+  // uptime bar (it reads daily rows). Synthesize today AND yesterday from
+  // hourly, and exclude both from the materialized query so a later backfill
+  // can't double-count them.
+  const yesterdayStart = todayStart - DAY_MS;
 
-  const [hourly, daily, today] = await Promise.all([
+  const [hourly, daily, recent] = await Promise.all([
     env.DB
       .prepare("SELECT * FROM rollup_hourly WHERE hour_ts >= ? ORDER BY hour_ts")
       .bind(now - hourlyHours * 3_600_000)
-      .all(),
+      .all<HourlyRow>(),
     env.DB
-      .prepare("SELECT * FROM rollup_daily WHERE day_ts >= ? ORDER BY day_ts")
-      .bind(now - dailyDays * 86_400_000)
-      .all(),
-    // Daily rows are materialized nightly from hourly; synthesize today's so
-    // the uptime bars never show a "no data" cell for the current day.
+      .prepare("SELECT * FROM rollup_daily WHERE day_ts >= ? AND day_ts < ? ORDER BY day_ts")
+      .bind(now - dailyDays * DAY_MS, yesterdayStart)
+      .all<DailyRow>(),
     env.DB
-      .prepare(
-        `SELECT ? AS day_ts, region, component, probe,
-                SUM(samples) AS samples, SUM(up) AS up, SUM(degraded) AS degraded,
-                SUM(down) AS down, SUM(latency_sum) AS latency_sum, MAX(latency_max) AS latency_max
-         FROM rollup_hourly
-         WHERE hour_ts >= ?
-         GROUP BY region, component, probe`,
-      )
-      .bind(todayStart, todayStart)
-      .all(),
+      .prepare("SELECT * FROM rollup_hourly WHERE hour_ts >= ? ORDER BY hour_ts")
+      .bind(yesterdayStart)
+      .all<HourlyRow>(),
   ]);
-  return { hourly: hourly.results, daily: [...daily.results, ...today.results] };
+  const synthesized = aggregateHourlyToDaily(recent.results);
+  return { hourly: hourly.results, daily: [...daily.results, ...synthesized] };
 }
 
 async function getIncidents(env: Env) {
