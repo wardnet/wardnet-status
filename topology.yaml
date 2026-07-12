@@ -47,6 +47,19 @@ global:
           url: https://api.wardnet.network/v1/me
           expect_status: 401
 
+    # Global SPA (React) served through nginx ingress. The `spa` check fetches the
+    # shell, then every asset it references, asserting none fall back to text/html —
+    # nginx serves index.html (200) for ANY missing path, so a broken deploy (missing
+    # bundle) still returns 200 and a plain check can't see it; the content-type can.
+    # Higher latency budget: it's a shell fetch plus a fan-out of asset fetches.
+    - name: account
+      display_name: My Account
+      probes:
+        readyz:
+          url: https://account.wardnet.network/
+          check: spa
+          degraded_latency_ms: 2500
+
 # Per-region components. Empty for now — add a region here only once its probes are
 # confirmed live, so we never page on services that aren't up yet.
 #

@@ -52,6 +52,12 @@ export interface ProbeSpec {
    * mean "upstream unreachable", the exact failure these checks exist to catch.
    */
   expect_status?: number;
+  /**
+   * Probe kind. "http" (default) = a single request. "spa" = SPA readiness: fetch the
+   * shell, then fetch every asset it references and assert none fall back to text/html
+   * (which an SPA ingress serves for any missing file). expect_status does not apply.
+   */
+  check?: "http" | "spa";
 }
 
 export interface ComponentSpec {
