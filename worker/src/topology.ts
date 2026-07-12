@@ -19,6 +19,9 @@ const probeSchema = z.object({
   // Expected HTTP status for "ok" (default: any 2xx). Set e.g. 401 for an API-gateway
   // edge probe where the service answers 401 through the GW. 502/503/504 always fail.
   expect_status: z.number().int().min(100).max(599).optional(),
+  // "spa" runs the SPA-readiness executor (shell → assets, content-type checked)
+  // instead of a single request. Default "http".
+  check: z.enum(["http", "spa"]).optional(),
 });
 
 const componentSchema = z.object({
@@ -96,6 +99,7 @@ export function parseTopology(yamlText: string): Topology {
                 failures_to_down: d.failures_to_down,
                 successes_to_up: d.successes_to_up,
                 expect_status: p.expect_status,
+                check: p.check,
               },
             ],
           ];
