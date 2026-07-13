@@ -16,23 +16,33 @@ rather than per region (e.g. tenants).
 
 ## Component
 A monitorable service within a region (or global): tenants, ddns, tunneller.
-A component exposes one or more probes. A component's status is the worst of
-its probes' statuses.
+A component declares one or more assertions. A component's status is the worst
+of its assertions' statuses. A component is ONE line on the status page — every
+path to the same service (direct health port, via the API gateway) is an
+assertion on that one component, never a second component.
 
-## Probe
-A named URL health check of a component. The vocabulary is closed — exactly
-three, each optional:
+## Assertion
+A named endpoint check of a component: a URL, the HTTP status that counts as
+"ok" (default any 2xx; 502/503/504 always fail), an optional check kind
+(`http` | `spa`), and an impact policy — the severity ceiling the assertion
+alone may drive (`down`, the default, or `degraded`). Names are free-form but
+must be unique per component and STABLE (history is keyed by them).
+Conventional names:
 - **livez** — the process is alive; zero dependencies.
 - **readyz** — the component can serve right now; critical-path dependencies only.
-- **healthz** — aggregate health including non-critical indicators.
+- **healthz** — aggregate health including non-critical indicators; declared
+  with `impact: degraded`.
+- **gateway** — the component as reached over the consumer path (through the
+  public API gateway) rather than the direct health port.
 
 ## Status
-The state of a probe/component/region: **UP**, **DEGRADED**, **DOWN**, or
+The state of an assertion/component/region: **UP**, **DEGRADED**, **DOWN**, or
 **UNKNOWN** (no fresh evaluation). Severity order: DOWN > DEGRADED > UP.
-Statuses escalate UP → DEGRADED → DOWN via consecutive failures and return
-directly to UP on confirmed recovery. livez/readyz failures can drive DOWN;
-healthz failures cap at DEGRADED (a component with livez+readyz passing is
-demonstrably serving). Slowness contributes DEGRADED only.
+Statuses escalate UP → DEGRADED → DOWN via consecutive failures (thresholds
+overridable per assertion) and return directly to UP on confirmed recovery.
+An assertion's declared impact caps how far it can drive the component:
+`impact: degraded` failures cap at DEGRADED (a component whose other
+assertions pass is demonstrably serving). Slowness contributes DEGRADED only.
 
 ## Episode
 One continuous arc of a single component in a single region from leaving UP

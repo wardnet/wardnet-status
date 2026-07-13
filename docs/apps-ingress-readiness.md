@@ -3,6 +3,14 @@
 Status: **design agreed, implementation deferred.** Paused here to ship + test the
 first live service. This note is the resume point.
 
+> **Superseded in part (2026-07-13):** the "separate `tenants-edge` component"
+> decision below was reversed once it shipped — two page lines for one service
+> proved confusing and doubled incidents. The probe vocabulary was generalized to
+> per-component **assertions** (free-form named checks with a declared `impact`
+> ceiling), and the gateway check is now the `gateway` assertion on `tenants`
+> itself. Fault localization moved from component level to assertion level
+> (incident reports name the failing assertion). See CONTEXT.md "Assertion".
+
 Two related gaps, one shared enabler. Today we probe services at their **back door**
 (direct `:81` health endpoints). This note covers two ways to also probe the
 **front door** — the path real consumers use:

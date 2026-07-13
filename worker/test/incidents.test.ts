@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { failureReport, incidentTitle, onComponentTransition, REOPEN_WINDOW_MS } from "../src/incidents";
-import type { ComponentRef, Env, ProbeFailure, ProbeName } from "../src/types";
+import { failureReport, incidentTitle, onComponentTransition, REOPEN_WINDOW_MS, resolveOrphanedIncidents } from "../src/incidents";
+import type { ComponentRef, Env, ProbeFailure, Topology } from "../src/types";
 
 function ref(region: string, component: string): ComponentRef {
   return { region, component, regionName: region, componentName: component };
 }
 
-function fail(probe: ProbeName): ProbeFailure {
+function fail(probe: string): ProbeFailure {
   return { probe, url: `https://svc.example/${probe}`, http_status: 503, latency_ms: 87, error: "HTTP 503", body: "oops" };
 }
 
-const fails = (...probes: ProbeName[]): ProbeFailure[] => probes.map(fail);
+const fails = (...probes: string[]): ProbeFailure[] => probes.map(fail);
 
 /**
  * Minimal in-memory stand-in for the D1 incidents table — just enough SQL
@@ -35,6 +35,12 @@ function fakeDb() {
   let nextId = 1;
 
   const stmt = (sql: string) => ({
+    all: async <T>(): Promise<{ results: T[] }> => {
+      if (sql.includes("resolved_at IS NULL")) {
+        return { results: rows.filter((r) => r.resolved_at === null) as T[] };
+      }
+      throw new Error(`unexpected all(): ${sql}`);
+    },
     bind: (...args: unknown[]) => ({
       first: async <T>(): Promise<T | null> => {
         if (sql.includes("resolved_at IS NULL")) {
@@ -189,5 +195,52 @@ describe("incident lifecycle", () => {
     expect(db.rows).toHaveLength(2);
     await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DEGRADED", "UP", fails());
     expect(db.rows.filter((r) => r.resolved_at === null)).toHaveLength(1);
+  });
+});
+
+describe("resolveOrphanedIncidents", () => {
+  const T0 = 1_000_000_000;
+
+  // Topology containing exactly the given (region slug, component name) pairs.
+  const topo = (...pairs: Array<[string, string]>): Topology => ({
+    regions: [...new Set(pairs.map(([r]) => r))].map((slug) => ({
+      slug,
+      display_name: slug,
+      location_hint: undefined,
+      components: pairs
+        .filter(([r]) => r === slug)
+        .map(([, name]) => ({ name, display_name: name, assertions: [] })),
+    })),
+  });
+
+  it("resolves open incidents for components no longer in the topology", async () => {
+    const db = fakeDb();
+    const env = envWith(db.db);
+    await onComponentTransition(env, T0, ref("global", "tenants-edge"), "UP", "DOWN", fails("readyz"));
+    await onComponentTransition(env, T0, ref("global", "tenants"), "UP", "DEGRADED", fails("healthz"));
+
+    const resolved = await resolveOrphanedIncidents(env, T0 + 60_000, topo(["global", "tenants"]));
+
+    // tenants-edge is gone from topology → resolved and reported for notification.
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({
+      region: "global",
+      component: "tenants-edge",
+      severity: "DOWN",
+      durationMs: 60_000,
+    });
+    expect(db.rows.find((r) => r.component === "tenants-edge")!.resolved_at).toBe(T0 + 60_000);
+    // tenants is still live → its incident stays open for the probe cycle to manage.
+    expect(db.rows.find((r) => r.component === "tenants")!.resolved_at).toBeNull();
+  });
+
+  it("is a no-op when every open incident's component is still in the topology", async () => {
+    const db = fakeDb();
+    const env = envWith(db.db);
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
+
+    const resolved = await resolveOrphanedIncidents(env, T0 + 60_000, topo(["use1", "ddns"]));
+    expect(resolved).toHaveLength(0);
+    expect(db.rows[0]!.resolved_at).toBeNull();
   });
 });

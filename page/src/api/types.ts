@@ -1,8 +1,8 @@
 export type Status = "UP" | "DEGRADED" | "DOWN" | "UNKNOWN";
-export type ProbeName = "livez" | "readyz" | "healthz";
 
+/** One assertion's live state. Names are free-form (livez, readyz, healthz, gateway, …). */
 export interface ProbeStatus {
-  name: ProbeName | string;
+  name: string;
   status: Status;
   latency_ms: number | null;
   checked_at: number | null;

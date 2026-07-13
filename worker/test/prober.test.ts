@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { executeProbe, executeSpaProbe, extractAssetRefs } from "../src/prober";
-import type { ProbeSpec } from "../src/types";
+import type { AssertionSpec } from "../src/types";
 
-const spec = (over: Partial<ProbeSpec> = {}): ProbeSpec => ({
+const spec = (over: Partial<AssertionSpec> = {}): AssertionSpec => ({
+  name: "readyz",
+  impact: "down",
   url: "https://example.test/probe",
   timeout_ms: 5000,
   degraded_latency_ms: 1000,

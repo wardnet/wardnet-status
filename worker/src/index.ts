@@ -1,5 +1,7 @@
 import { handleApi } from "./api";
 import { DEMO_TOPOLOGY_YAML } from "./demo-topology";
+import { resolveOrphanedIncidents } from "./incidents";
+import { notifyTransition } from "./notify";
 import { d1TopologyStorage, metaUpsert } from "./storage";
 import { fetchTopology } from "./topology";
 import type { Env } from "./types";
@@ -74,6 +76,34 @@ async function probeAllRegions(env: Env): Promise<void> {
       console.error(`cycle ${topology.regions[i]?.slug ?? i} failed:`, result.reason);
     }
   });
+
+  // Reconcile: a component removed from the topology is never probed again, so
+  // its UP transition can never arrive — resolve its open incidents here and
+  // send the matching resolve notifications (the pager alert is keyed
+  // region/component and would otherwise stay firing forever). Best-effort:
+  // a failed sweep retries next cycle, never blocks probing.
+  try {
+    const orphaned = await resolveOrphanedIncidents(env, Date.now(), topology);
+    for (const o of orphaned) {
+      console.log(`resolved orphaned incident for removed component ${o.region}/${o.component}`);
+      await notifyTransition(env, {
+        region: o.region,
+        component: o.component,
+        // Display names come from the topology, which no longer has this
+        // component — slugs are the best identity we still have.
+        regionName: o.region,
+        componentName: o.component,
+        from: o.severity,
+        to: "UP",
+        failures: [],
+        severity: o.severity,
+        githubUrl: o.githubUrl,
+        durationMs: o.durationMs,
+      });
+    }
+  } catch (err) {
+    console.error("orphaned-incident sweep:", err);
+  }
 }
 
 /**

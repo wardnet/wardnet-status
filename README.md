@@ -5,14 +5,16 @@ the Cloudflare free tier. Design rationale: [docs/adr/0001](docs/adr/0001-custom
 vocabulary: [CONTEXT.md](CONTEXT.md).
 
 - **Prober** — one Durable Object per region (+ `global`), driven by a 1-minute
-  cron, probing each component's `livez` / `readyz` / `healthz` endpoints from
-  a location-hinted vantage.
+  cron, checking each component's assertions (conventionally `livez` / `readyz`
+  / `healthz`, plus `gateway` for consumer-path checks) from a location-hinted
+  vantage.
 - **Topology is data** — [`topology.yaml`](topology.yaml) is fetched from
   `main` at runtime (ETag-cached, last-known-good fallback). Adding a region,
-  component, or probe is a merge; no deploy.
-- **Status ladder** — per probe: 1 failure → UP (blip), 2 → DEGRADED, 3+ → DOWN;
-  2 successes → UP. `healthz` (and slowness) cap at DEGRADED; `livez`/`readyz`
-  can drive DOWN.
+  component, or assertion is a merge; no deploy.
+- **Status ladder** — per assertion: 1 failure → UP (blip), 2 → DEGRADED,
+  3+ → DOWN (thresholds overridable per assertion); 2 successes → UP. An
+  assertion declared `impact: degraded` (and slowness) caps at DEGRADED;
+  `impact: down` (the default) can drive DOWN.
 - **History** — D1, tiered: raw 14 d, hourly rollups 90 d, daily rollups and
   incidents forever.
 - **Incidents** — one per episode: D1 row + auto-managed GitHub issue in this

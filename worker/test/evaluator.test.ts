@@ -12,7 +12,9 @@ const cfg: LadderConfig = {
   failures_to_degraded: 2,
   failures_to_down: 3,
   successes_to_up: 2,
+  impact: "down",
 };
+const degradedOnly: LadderConfig = { ...cfg, impact: "degraded" };
 
 const ok = { ok: true, slow: false };
 const slow = { ok: true, slow: true };
@@ -20,65 +22,65 @@ const fail = { ok: false, slow: false };
 
 function run(
   samples: Array<typeof ok>,
-  probe: "livez" | "readyz" | "healthz",
+  config: LadderConfig = cfg,
   from: ProbeState = INITIAL_STATE,
 ): ProbeState {
-  return samples.reduce((s, sample) => evaluate(s, sample, probe, cfg), from);
+  return samples.reduce((s, sample) => evaluate(s, sample, config), from);
 }
 
-describe("escalation ladder (livez/readyz)", () => {
+describe("escalation ladder (impact: down)", () => {
   it("cold start: first clean success asserts UP", () => {
-    expect(run([ok], "readyz").status).toBe("UP");
+    expect(run([ok]).status).toBe("UP");
   });
 
   it("cold start: failures escalate without ever claiming UP", () => {
-    expect(run([fail], "readyz").status).toBe("UNKNOWN");
-    expect(run([fail, fail], "readyz").status).toBe("DEGRADED");
-    expect(run([fail, fail, fail], "readyz").status).toBe("DOWN");
+    expect(run([fail]).status).toBe("UNKNOWN");
+    expect(run([fail, fail]).status).toBe("DEGRADED");
+    expect(run([fail, fail, fail]).status).toBe("DOWN");
   });
 
   it("UP + 1 fail stays UP (blip tolerance)", () => {
-    expect(run([ok, fail], "readyz").status).toBe("UP");
+    expect(run([ok, fail]).status).toBe("UP");
   });
 
   it("UP + 2 fails → DEGRADED", () => {
-    expect(run([ok, fail, fail], "readyz").status).toBe("DEGRADED");
+    expect(run([ok, fail, fail]).status).toBe("DEGRADED");
   });
 
   it("UP + 3 fails → DOWN, and stays DOWN while failing", () => {
-    expect(run([ok, fail, fail, fail], "readyz").status).toBe("DOWN");
-    expect(run([ok, fail, fail, fail, fail], "readyz").status).toBe("DOWN");
+    expect(run([ok, fail, fail, fail]).status).toBe("DOWN");
+    expect(run([ok, fail, fail, fail, fail]).status).toBe("DOWN");
   });
 
   it("a success mid-ladder resets the failure count", () => {
-    const s = run([ok, fail, ok, fail], "readyz");
+    const s = run([ok, fail, ok, fail]);
     expect(s.status).toBe("UP");
     expect(s.consecutiveFailures).toBe(1);
   });
 
   it("recovery from DOWN needs 2 consecutive successes", () => {
-    const down = run([ok, fail, fail, fail], "readyz");
-    expect(evaluate(down, ok, "readyz", cfg).status).toBe("DOWN");
-    expect(run([ok], "readyz", evaluate(down, ok, "readyz", cfg)).status).toBe("UP");
+    const down = run([ok, fail, fail, fail]);
+    expect(evaluate(down, ok, cfg).status).toBe("DOWN");
+    expect(run([ok], cfg, evaluate(down, ok, cfg)).status).toBe("UP");
   });
 
   it("recovery from DEGRADED needs 2 consecutive successes", () => {
-    const degraded = run([ok, fail, fail], "readyz");
-    expect(evaluate(degraded, ok, "readyz", cfg).status).toBe("DEGRADED");
-    expect(run([ok, ok], "readyz", degraded).status).toBe("UP");
+    const degraded = run([ok, fail, fail]);
+    expect(evaluate(degraded, ok, cfg).status).toBe("DEGRADED");
+    expect(run([ok, ok], cfg, degraded).status).toBe("UP");
   });
 
   it("goes straight DOWN → UP, no staircase", () => {
-    const down = run([ok, fail, fail, fail], "readyz");
-    const recovered = run([ok, ok], "readyz", down);
+    const down = run([ok, fail, fail, fail]);
+    const recovered = run([ok, ok], cfg, down);
     expect(recovered.status).toBe("UP");
   });
 });
 
-describe("healthz DEGRADED ceiling", () => {
-  it("3+ consecutive healthz failures cap at DEGRADED, never DOWN", () => {
-    expect(run([ok, fail, fail, fail], "healthz").status).toBe("DEGRADED");
-    expect(run([ok, fail, fail, fail, fail, fail], "healthz").status).toBe("DEGRADED");
+describe("impact: degraded ceiling", () => {
+  it("3+ consecutive failures cap at DEGRADED, never DOWN", () => {
+    expect(run([ok, fail, fail, fail], degradedOnly).status).toBe("DEGRADED");
+    expect(run([ok, fail, fail, fail, fail, fail], degradedOnly).status).toBe("DEGRADED");
   });
 });
 
@@ -128,20 +130,20 @@ describe("announcementFor (against last ANNOUNCED status)", () => {
 
 describe("slowness", () => {
   it("one slow success on an UP probe stays UP", () => {
-    expect(run([ok, slow], "readyz").status).toBe("UP");
+    expect(run([ok, slow]).status).toBe("UP");
   });
 
   it("2 consecutive slow successes → DEGRADED, never DOWN", () => {
-    expect(run([ok, slow, slow], "readyz").status).toBe("DEGRADED");
-    expect(run([ok, slow, slow, slow, slow], "readyz").status).toBe("DEGRADED");
+    expect(run([ok, slow, slow]).status).toBe("DEGRADED");
+    expect(run([ok, slow, slow, slow, slow]).status).toBe("DEGRADED");
   });
 
   it("a fast success clears persistent slowness", () => {
-    expect(run([ok, slow, slow, ok, ok], "readyz").status).toBe("UP");
+    expect(run([ok, slow, slow, ok, ok]).status).toBe("UP");
   });
 
   it("slow successes still reset the failure ladder", () => {
-    const s = run([ok, fail, fail, slow], "readyz");
+    const s = run([ok, fail, fail, slow]);
     expect(s.consecutiveFailures).toBe(0);
     expect(s.status).toBe("DEGRADED"); // still awaiting confirmed recovery
   });

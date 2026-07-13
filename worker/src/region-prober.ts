@@ -3,8 +3,7 @@ import { onComponentTransition } from "./incidents";
 import { notifyTransition } from "./notify";
 import { executeProbe, type ProbeResult } from "./prober";
 import { metaUpsert } from "./storage";
-import { PROBE_NAMES } from "./topology";
-import type { Env, ProbeFailure, ProbeName, RegionSpec, Status } from "./types";
+import type { Env, ProbeFailure, RegionSpec, Status } from "./types";
 import { worst } from "./types";
 
 /**
@@ -52,13 +51,11 @@ export class RegionProber implements DurableObject {
     const now = Date.now();
     const db = this.env.DB;
 
-    // Execute all probes of the region concurrently.
-    const jobs: Array<{ component: string; probe: ProbeName; promise: Promise<ProbeResult> }> = [];
+    // Execute all assertions of the region concurrently.
+    const jobs: Array<{ component: string; probe: string; promise: Promise<ProbeResult> }> = [];
     for (const component of region.components) {
-      for (const probe of PROBE_NAMES) {
-        const spec = component.probes[probe];
-        if (!spec) continue;
-        jobs.push({ component: component.name, probe, promise: executeProbe(spec) });
+      for (const assertion of component.assertions) {
+        jobs.push({ component: component.name, probe: assertion.name, promise: executeProbe(assertion) });
       }
     }
     const results = new Map<string, ProbeResult>();
@@ -83,17 +80,16 @@ export class RegionProber implements DurableObject {
       const perProbeNext: Status[] = [];
       const failing: ProbeFailure[] = [];
 
-      for (const probe of PROBE_NAMES) {
-        const spec = component.probes[probe];
-        if (!spec) continue;
+      for (const spec of component.assertions) {
+        const probe = spec.name;
         const r = results.get(`${component.name}/${probe}`)!;
 
         const key = `ladder:${component.name}:${probe}`;
         const prev = (stored.get(key) as ProbeState | undefined) ?? INITIAL_STATE;
-        const next = evaluate(prev, { ok: r.ok, slow: r.slow }, probe, spec);
+        const next = evaluate(prev, { ok: r.ok, slow: r.slow }, spec);
         newLadders[key] = next;
 
-        // One line per probe request — the debugging trail for every cycle
+        // One line per assertion request — the debugging trail for every cycle
         // (visible in `wrangler dev` locally, `wrangler tail` in production).
         console.log(
           `probe ${region.slug}/${component.name}/${probe} ${spec.url} → ` +

@@ -1,4 +1,3 @@
-export type ProbeName = "livez" | "readyz" | "healthz";
 export type Status = "UP" | "DEGRADED" | "DOWN" | "UNKNOWN";
 
 export const SEVERITY: Record<Status, number> = {
@@ -17,9 +16,10 @@ export function worst(statuses: Status[]): Status {
   );
 }
 
-/** One probe request that contributed to a non-UP evaluation. */
+/** One assertion request that contributed to a non-UP evaluation. */
 export interface ProbeFailure {
-  probe: ProbeName;
+  /** Assertion name (e.g. "readyz", "gateway"). */
+  probe: string;
   url: string;
   http_status: number | null;
   latency_ms: number;
@@ -37,13 +37,27 @@ export interface ComponentRef {
   componentName: string;
 }
 
-export interface ProbeSpec {
+export interface AssertionSpec {
+  /**
+   * Assertion names are free-form but KEEP THEM STABLE: ladder state, snapshots,
+   * and rollups are all keyed by (region, component, assertion-name) — renaming
+   * one restarts its history from scratch. Conventional names: livez, readyz,
+   * healthz, gateway.
+   */
+  name: string;
   url: string;
   timeout_ms: number;
   degraded_latency_ms: number;
   failures_to_degraded: number;
   failures_to_down: number;
   successes_to_up: number;
+  /**
+   * Severity ceiling this assertion alone may drive the component to.
+   * "down" (default): full ladder DEGRADED → DOWN. "degraded": never worse than
+   * DEGRADED — for aggregate/non-critical indicators (conventionally healthz),
+   * where the other assertions passing proves the component is serving.
+   */
+  impact: "down" | "degraded";
   /**
    * Expected HTTP status for "ok". Default (undefined) = any 2xx. Set it to accept a
    * specific non-2xx as healthy — e.g. `401` when probing a service through the API GW,
@@ -63,7 +77,7 @@ export interface ProbeSpec {
 export interface ComponentSpec {
   name: string;
   display_name: string;
-  probes: Partial<Record<ProbeName, ProbeSpec>>;
+  assertions: AssertionSpec[];
 }
 
 export interface RegionSpec {

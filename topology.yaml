@@ -1,17 +1,27 @@
 # Topology Config — the single source of truth for what wardnet-status monitors.
 #
 # This file is DATA, not code: the prober fetches it raw from `main` (ETag-cached)
-# on every probe cycle. Adding a region, component, or probe is a merge to main —
+# on every probe cycle. Adding a region, component, or assertion is a merge to main —
 # it goes live on the next cycle, with NO worker redeploy.
 #
-# Probe vocabulary is exactly three named URL checks, each optional per component:
-#   livez   — process alive, zero dependencies        (failing → can reach DOWN)
-#   readyz  — critical-path deps, can serve right now (failing → can reach DOWN)
-#   healthz — aggregate incl. non-critical indicators (failing → caps at DEGRADED)
+# Each component declares an ARRAY of assertions. An assertion is one endpoint check:
+#   url            — what to request
+#   expect_status  — HTTP status meaning "ok" (default any 2xx; 502/503/504 always fail)
+#   check          — http (default, single request) | spa (shell + referenced assets)
+#   impact         — severity ceiling this assertion alone may drive:
+#                      down (default)  — full ladder: DEGRADED, then DOWN
+#                      degraded        — never worse than DEGRADED (non-critical indicators)
+#   failures_to_degraded / failures_to_down / successes_to_up — ladder thresholds,
+#   overridable per assertion (defaults below). timeout_ms / degraded_latency_ms too.
 #
-# Status ladder per probe (consecutive failures): 1 → UP, 2 → DEGRADED, 3+ → DOWN.
+# Status ladder per assertion (consecutive failures): 1 → UP, 2 → DEGRADED, 3+ → DOWN.
 # Recovery: 2 consecutive successes → UP. Slow-but-successful (> degraded_latency_ms)
-# contributes DEGRADED only.
+# contributes DEGRADED only. Component status = worst of its assertions.
+#
+# Conventional assertion names — livez (process alive), readyz (can serve now),
+# healthz (aggregate incl. non-critical → impact: degraded), gateway (consumer path).
+# KEEP NAMES STABLE: history and ladder state are keyed by
+# (region, component, assertion-name); renaming one restarts its history.
 
 defaults:
   timeout_ms: 5000
@@ -26,24 +36,21 @@ global:
   components:
     - name: tenants
       display_name: Identity & Billing
-      probes:
-        livez:
+      assertions:
+        - name: livez
           url: http://tenants.svc.prd.wardnet.network:81/livez
-        readyz:
+        - name: readyz
           url: http://tenants.svc.prd.wardnet.network:81/readyz
-        healthz:
+        - name: healthz
           url: http://tenants.svc.prd.wardnet.network:81/healthz
-
-    # Consumer path: the tenants service as reached through the public API gateway
-    # (lightweight nginx, routing only — no auth). An unauthenticated /v1/me returns
-    # 401 FROM THE SERVICE through the GW, so 401 is the healthy end-to-end signal;
-    # a 502/timeout means the GW can't reach tenants (the "green back door, broken
-    # front door" case this component exists to surface). Modeled separately from
-    # `tenants` so the status page localizes the fault to the edge vs the service.
-    - name: tenants-edge
-      display_name: Identity & Billing (via API Gateway)
-      probes:
-        readyz:
+          impact: degraded
+        # Consumer path: tenants as reached through the public API gateway
+        # (lightweight nginx, routing only — no auth). An unauthenticated /v1/me
+        # returns 401 FROM THE SERVICE through the GW, so 401 is the healthy
+        # end-to-end signal; a 502/timeout means the GW can't reach tenants (the
+        # "green back door, broken front door" case this assertion exists to
+        # surface — the incident report names the failing assertion).
+        - name: gateway
           url: https://api.wardnet.network/v1/me
           expect_status: 401
 
@@ -54,17 +61,41 @@ global:
     # Higher latency budget: it's a shell fetch plus a fan-out of asset fetches.
     - name: account
       display_name: My Account
-      probes:
-        readyz:
+      assertions:
+        - name: readyz
           url: https://account.wardnet.network/
           check: spa
           degraded_latency_ms: 2500
 
-# Per-region components. Empty for now — add a region here only once its probes are
-# confirmed live, so we never page on services that aren't up yet.
+# Per-region components. Add a region here only once its assertions are confirmed
+# live, so we never page on services that aren't up yet.
 #
 # Slugs match wardnet-infrastructure resources/prd/regions.yaml.
 # location_hint is a Cloudflare Durable Object location hint (best-effort vantage).
-# Health checks are Host-demuxed by `<service>.svc.<region>.prd.<base>` FQDNs on the
+# Health checks are Host-demuxed by `<service>.svc.prd.<region>.<base>` FQDNs on the
 # edge ingress health port (:81) — confirm each derived FQDN before adding it.
-regions: []
+regions:
+  - slug: euc
+    display_name: EU Central
+    location_hint: weur
+    components:
+      - name: ddns
+        display_name: DDNS
+        assertions:
+          - name: livez
+            url: http://ddns.svc.prd.euc.wardnet.network:81/livez
+          - name: readyz
+            url: http://ddns.svc.prd.euc.wardnet.network:81/readyz
+          - name: healthz
+            url: http://ddns.svc.prd.euc.wardnet.network:81/healthz
+            impact: degraded
+      - name: tunneller
+        display_name: Tunneller
+        assertions:
+          - name: livez
+            url: http://tunneller.svc.prd.euc.wardnet.network:81/livez
+          - name: readyz
+            url: http://tunneller.svc.prd.euc.wardnet.network:81/readyz
+          - name: healthz
+            url: http://tunneller.svc.prd.euc.wardnet.network:81/healthz
+            impact: degraded

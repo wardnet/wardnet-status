@@ -1,4 +1,4 @@
-import type { ProbeSpec } from "./types";
+import type { AssertionSpec } from "./types";
 
 export interface ProbeResult {
   ok: boolean;
@@ -38,7 +38,7 @@ const probeInit = (timeoutMs: number): ProbeInit => ({
 
 /** Execute one probe: 2xx within timeout = ok; ok beyond the latency budget = slow. */
 export async function executeProbe(
-  spec: ProbeSpec,
+  spec: AssertionSpec,
   fetcher: typeof fetch = fetch,
 ): Promise<ProbeResult> {
   // SPA readiness is a compound check (shell → assets), not a single request.
@@ -154,7 +154,7 @@ export function extractAssetRefs(html: string, baseUrl: string): AssetRef[] {
  * check), so the app white-screens even though every request returned 200.
  */
 export async function executeSpaProbe(
-  spec: ProbeSpec,
+  spec: AssertionSpec,
   fetcher: typeof fetch = fetch,
 ): Promise<ProbeResult> {
   const started = Date.now();

@@ -1,8 +1,6 @@
 import { parse } from "yaml";
 import { z } from "zod";
-import type { ProbeName, RegionSpec, Topology } from "./types";
-
-export const PROBE_NAMES: ProbeName[] = ["livez", "readyz", "healthz"];
+import type { RegionSpec, Topology } from "./types";
 
 const defaultsSchema = z.object({
   timeout_ms: z.number().int().positive().default(5000),
@@ -10,35 +8,40 @@ const defaultsSchema = z.object({
   failures_to_degraded: z.number().int().positive().default(2),
   failures_to_down: z.number().int().positive().default(3),
   successes_to_up: z.number().int().positive().default(2),
-});
+}).strict();
 
-const probeSchema = z.object({
+const assertionSchema = z.object({
+  // Free-form, but stable: history/ladder state is keyed by (region, component, name).
+  name: z.string().min(1),
   url: z.string().url(),
   timeout_ms: z.number().int().positive().optional(),
   degraded_latency_ms: z.number().int().positive().optional(),
-  // Expected HTTP status for "ok" (default: any 2xx). Set e.g. 401 for an API-gateway
-  // edge probe where the service answers 401 through the GW. 502/503/504 always fail.
+  // Ladder thresholds, overridable per assertion (fall back to defaults:).
+  failures_to_degraded: z.number().int().positive().optional(),
+  failures_to_down: z.number().int().positive().optional(),
+  successes_to_up: z.number().int().positive().optional(),
+  // Expected HTTP status for "ok" (default: any 2xx). Set e.g. 401 for a gateway
+  // assertion where the service answers 401 through the GW. 502/503/504 always fail.
   expect_status: z.number().int().min(100).max(599).optional(),
   // "spa" runs the SPA-readiness executor (shell → assets, content-type checked)
   // instead of a single request. Default "http".
   check: z.enum(["http", "spa"]).optional(),
-});
+  // Severity ceiling: "down" (default) walks the full DEGRADED → DOWN ladder;
+  // "degraded" never drives worse than DEGRADED (non-critical indicators).
+  impact: z.enum(["down", "degraded"]).default("down"),
+}).strict();
 
 const componentSchema = z.object({
   name: z.string().min(1),
   display_name: z.string().min(1).optional(),
-  // The probe vocabulary is closed: exactly these three names, each optional.
-  probes: z
-    .object({
-      livez: probeSchema.optional(),
-      readyz: probeSchema.optional(),
-      healthz: probeSchema.optional(),
-    })
-    .strict()
-    .refine((p) => PROBE_NAMES.some((n) => p[n] !== undefined), {
-      message: "component must expose at least one probe",
-    }),
-});
+  assertions: z
+    .array(assertionSchema)
+    .min(1)
+    .refine(
+      (list) => new Set(list.map((a) => a.name)).size === list.length,
+      { message: "assertion names must be unique within a component" },
+    ),
+}).strict();
 
 // Cloudflare Durable Object location hints — anything else would make the
 // DO namespace.get() reject at fan-out time, silently killing the region.
@@ -59,7 +62,7 @@ const regionSchema = z.object({
   display_name: z.string().min(1).optional(),
   location_hint: locationHintSchema.optional(),
   components: z.array(componentSchema).min(1),
-});
+}).strict();
 
 const topologyFileSchema = z.object({
   defaults: defaultsSchema.default({}),
@@ -68,9 +71,10 @@ const topologyFileSchema = z.object({
       location_hint: locationHintSchema.optional(),
       components: z.array(componentSchema).min(1),
     })
+    .strict()
     .optional(),
   regions: z.array(regionSchema).default([]),
-});
+}).strict();
 
 /** Parse + validate the raw YAML into the normalized Topology (defaults applied). */
 export function parseTopology(yamlText: string): Topology {
@@ -83,28 +87,31 @@ export function parseTopology(yamlText: string): Topology {
     components.map((c) => ({
       name: c.name,
       display_name: c.display_name ?? c.name,
-      probes: Object.fromEntries(
-        PROBE_NAMES.flatMap((name) => {
-          const p = c.probes[name];
-          if (!p) return [];
-          return [
-            [
-              name,
-              {
-                url: p.url,
-                timeout_ms: p.timeout_ms ?? d.timeout_ms,
-                degraded_latency_ms:
-                  p.degraded_latency_ms ?? d.degraded_latency_ms,
-                failures_to_degraded: d.failures_to_degraded,
-                failures_to_down: d.failures_to_down,
-                successes_to_up: d.successes_to_up,
-                expect_status: p.expect_status,
-                check: p.check,
-              },
-            ],
-          ];
-        }),
-      ),
+      assertions: c.assertions.map((a) => {
+        const spec = {
+          name: a.name,
+          url: a.url,
+          timeout_ms: a.timeout_ms ?? d.timeout_ms,
+          degraded_latency_ms: a.degraded_latency_ms ?? d.degraded_latency_ms,
+          failures_to_degraded: a.failures_to_degraded ?? d.failures_to_degraded,
+          failures_to_down: a.failures_to_down ?? d.failures_to_down,
+          successes_to_up: a.successes_to_up ?? d.successes_to_up,
+          expect_status: a.expect_status,
+          check: a.check,
+          impact: a.impact,
+        };
+        // Validated on the MERGED values: an override on one threshold combines
+        // with the default of the other, so a per-field check can't catch an
+        // inverted pair. evaluate() tests the DOWN threshold first — inverted
+        // thresholds would skip DEGRADED and jump straight to DOWN.
+        if (spec.failures_to_degraded > spec.failures_to_down) {
+          throw new Error(
+            `component "${c.name}" assertion "${a.name}": failures_to_degraded (${spec.failures_to_degraded}) ` +
+              `must be <= failures_to_down (${spec.failures_to_down})`,
+          );
+        }
+        return spec;
+      }),
     }));
 
   const regions: RegionSpec[] = [];

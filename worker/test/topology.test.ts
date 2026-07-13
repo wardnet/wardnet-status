@@ -8,15 +8,16 @@ global:
   location_hint: weur
   components:
     - name: tenants
-      probes:
-        livez: { url: "http://t:81/livez" }
-        readyz: { url: "http://t:81/readyz", timeout_ms: 1000 }
+      assertions:
+        - { name: livez, url: "http://t:81/livez" }
+        - { name: readyz, url: "http://t:81/readyz", timeout_ms: 1000, failures_to_degraded: 1 }
+        - { name: gateway, url: "https://api.example/v1/me", expect_status: 401 }
 regions:
   - slug: use1
     components:
       - name: ddns
-        probes:
-          healthz: { url: "http://d:81/healthz" }
+        assertions:
+          - { name: healthz, url: "http://d:81/healthz", impact: degraded }
 `;
 
 describe("parseTopology", () => {
@@ -24,23 +25,84 @@ describe("parseTopology", () => {
     const t = parseTopology(VALID_YAML);
     expect(t.regions.map((r) => r.slug)).toEqual(["global", "use1"]);
     const tenants = t.regions[0]!.components[0]!;
-    expect(tenants.probes.livez?.timeout_ms).toBe(4000);
-    expect(tenants.probes.readyz?.timeout_ms).toBe(1000);
-    expect(tenants.probes.healthz).toBeUndefined();
-    expect(tenants.probes.livez?.failures_to_down).toBe(3);
+    const byName = Object.fromEntries(tenants.assertions.map((a) => [a.name, a]));
+    expect(byName.livez?.timeout_ms).toBe(4000);
+    expect(byName.readyz?.timeout_ms).toBe(1000);
+    expect(byName.livez?.failures_to_down).toBe(3);
+    // Per-assertion ladder override beats the defaults.
+    expect(byName.readyz?.failures_to_degraded).toBe(1);
+    expect(byName.livez?.failures_to_degraded).toBe(2);
+    // Impact defaults to "down"; declared "degraded" is preserved.
+    expect(byName.gateway?.impact).toBe("down");
+    expect(byName.gateway?.expect_status).toBe(401);
+    const ddns = t.regions[1]!.components[0]!;
+    expect(ddns.assertions[0]?.impact).toBe("degraded");
   });
 
-  it("rejects unknown probe names (closed vocabulary)", () => {
+  it("rejects duplicate assertion names within a component", () => {
     expect(() =>
       parseTopology(`
 regions:
   - slug: use1
     components:
       - name: x
-        probes:
-          public: { url: "https://x" }
+        assertions:
+          - { name: readyz, url: "https://x/a" }
+          - { name: readyz, url: "https://x/b" }
 `),
     ).toThrow();
+  });
+
+  it("rejects invalid impact values", () => {
+    expect(() =>
+      parseTopology(`
+regions:
+  - slug: use1
+    components:
+      - name: x
+        assertions:
+          - { name: readyz, url: "https://x", impact: fatal }
+`),
+    ).toThrow();
+  });
+
+  it("rejects unknown keys (a typo'd impact must fail parse, not default to down)", () => {
+    expect(() =>
+      parseTopology(`
+regions:
+  - slug: use1
+    components:
+      - name: x
+        assertions:
+          - { name: healthz, url: "https://x", imapct: degraded }
+`),
+    ).toThrow();
+  });
+
+  it("rejects inverted ladder thresholds after merging with defaults", () => {
+    // Only failures_to_degraded is overridden; merged with the default
+    // failures_to_down (3) the pair is inverted and would skip DEGRADED.
+    expect(() =>
+      parseTopology(`
+regions:
+  - slug: use1
+    components:
+      - name: x
+        assertions:
+          - { name: readyz, url: "https://x", failures_to_degraded: 5 }
+`),
+    ).toThrow(/failures_to_degraded/);
+    // A consistent override of both is fine.
+    expect(() =>
+      parseTopology(`
+regions:
+  - slug: use1
+    components:
+      - name: x
+        assertions:
+          - { name: readyz, url: "https://x", failures_to_degraded: 5, failures_to_down: 7 }
+`),
+    ).not.toThrow();
   });
 
   it("rejects invalid Durable Object location hints", () => {
@@ -51,20 +113,20 @@ regions:
     location_hint: europe
     components:
       - name: x
-        probes:
-          livez: { url: "https://x" }
+        assertions:
+          - { name: livez, url: "https://x" }
 `),
     ).toThrow();
   });
 
-  it("rejects components with zero probes", () => {
+  it("rejects components with zero assertions", () => {
     expect(() =>
       parseTopology(`
 regions:
   - slug: use1
     components:
       - name: x
-        probes: {}
+        assertions: []
 `),
     ).toThrow();
   });
