@@ -99,7 +99,8 @@ async function getStatus(env: Env) {
 
   const regions = (topo?.regions ?? []).map((region) => {
     const components = region.components.map((component) => {
-      const probes = Object.entries(component.probes).map(([name]) => {
+      // Wire field stays `probes` (one entry per assertion) — the page's contract.
+      const probes = component.assertions.map(({ name }) => {
         const row = byKey.get(`${region.slug}/${component.name}/${name}`);
         return {
           name,

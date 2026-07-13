@@ -1,18 +1,21 @@
-import type { ProbeName, Status } from "./types";
+import type { Status } from "./types";
 
 /**
  * The agreed status ladder (see CONTEXT.md "Status"):
  *   consecutive failures: 1 → UP (blip tolerance), 2 → DEGRADED, 3+ → DOWN
+ *   (default thresholds; overridable per assertion in the Topology Config)
  *   recovery: 2 consecutive successes → straight back to UP
- * Severity ceilings: livez/readyz may reach DOWN; healthz caps at DEGRADED
- * (livez+readyz passing proves the component is serving). Slow-but-successful
- * responses contribute DEGRADED only, via the same 2-consecutive threshold.
+ * Severity ceilings come from the assertion's declared impact: "down" walks the
+ * full ladder; "degraded" caps at DEGRADED (the other assertions passing proves
+ * the component is serving). Slow-but-successful responses contribute DEGRADED
+ * only, via the same failures_to_degraded threshold.
  */
 
 export interface LadderConfig {
   failures_to_degraded: number;
   failures_to_down: number;
   successes_to_up: number;
+  impact: "down" | "degraded";
 }
 
 export interface ProbeState {
@@ -36,13 +39,8 @@ export const INITIAL_STATE: ProbeState = {
   consecutiveSlow: 0,
 };
 
-/** Ceiling per probe: the worst status this probe alone may drive. */
-export function probeCeiling(probe: ProbeName): Status {
-  return probe === "healthz" ? "DEGRADED" : "DOWN";
-}
-
-function capped(status: Status, ceiling: Status): Status {
-  if (status === "DOWN" && ceiling === "DEGRADED") return "DEGRADED";
+function capped(status: Status, impact: LadderConfig["impact"]): Status {
+  if (status === "DOWN" && impact === "degraded") return "DEGRADED";
   return status;
 }
 
@@ -73,11 +71,8 @@ export function announcementFor(
 export function evaluate(
   state: ProbeState,
   sample: ProbeSample,
-  probe: ProbeName,
   cfg: LadderConfig,
 ): ProbeState {
-  const ceiling = probeCeiling(probe);
-
   if (!sample.ok) {
     const failures = state.consecutiveFailures + 1;
     let status: Status;
@@ -87,7 +82,7 @@ export function evaluate(
     // (cold start) it stays UNKNOWN rather than asserting UP.
     else status = state.status === "UNKNOWN" ? "UNKNOWN" : state.status;
     return {
-      status: capped(status, ceiling),
+      status: capped(status, cfg.impact),
       consecutiveFailures: failures,
       consecutiveSuccesses: 0,
       consecutiveSlow: 0,

@@ -3,7 +3,6 @@ import type {
   HistoryResponse,
   HourlyRow,
   Incident,
-  ProbeName,
   Status,
   StatusResponse,
 } from "../api/types";
@@ -19,7 +18,7 @@ export type ScenarioName =
   | "stale-config"
   | "cold-start";
 
-const PROBES: ProbeName[] = ["livez", "readyz", "healthz"];
+const PROBES = ["livez", "readyz", "healthz"];
 const NOW = Date.now();
 
 function probes(status: Status, latency = 42): StatusResponse["regions"][0]["components"][0]["probes"] {

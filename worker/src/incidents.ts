@@ -1,5 +1,5 @@
 import { setIncidentFields, severityOption } from "./github-fields";
-import type { ComponentRef, Env, ProbeFailure, Status } from "./types";
+import type { ComponentRef, Env, ProbeFailure, Status, Topology } from "./types";
 
 /**
  * Incident lifecycle (see CONTEXT.md "Incident"): one incident per episode,
@@ -204,6 +204,60 @@ export async function onComponentTransition(
   }
 
   return {};
+}
+
+/** An open incident resolved by the orphan sweep — what the caller needs to notify. */
+export interface OrphanedIncident {
+  region: string;
+  component: string;
+  severity: "DEGRADED" | "DOWN";
+  githubUrl: string | null;
+  durationMs: number;
+}
+
+/**
+ * Resolve open incidents whose (region, component) no longer exists in the
+ * Topology Config. A removed or renamed component is never probed again, so
+ * nothing else can deliver its UP transition — without this sweep its incident
+ * would stay open forever (permanent page banner, GitHub issue never closed).
+ * Returns the resolved rows so the caller can send matching resolve
+ * notifications (the pager alert is keyed region/component and must resolve too).
+ */
+export async function resolveOrphanedIncidents(
+  env: Env,
+  now: number,
+  topology: Topology,
+): Promise<OrphanedIncident[]> {
+  const live = new Set(
+    topology.regions.flatMap((r) => r.components.map((c) => `${r.slug}/${c.name}`)),
+  );
+  const open = await env.DB
+    .prepare("SELECT * FROM incidents WHERE resolved_at IS NULL")
+    .all<IncidentRow & { region: string; component: string }>();
+
+  const resolved: OrphanedIncident[] = [];
+  for (const row of open.results) {
+    if (live.has(`${row.region}/${row.component}`)) continue;
+    await env.DB
+      .prepare("UPDATE incidents SET resolved_at = ? WHERE id = ?")
+      .bind(now, row.id)
+      .run();
+    await githubComment(
+      env,
+      row.github_issue,
+      `Closed at ${iso(now)}: component \`${row.component}\` (region \`${row.region}\`) was removed from the Topology Config, so this incident can no longer be observed by probing.`,
+    );
+    await setIncidentFields(env, row.github_issue, { status: "Resolved" });
+    await githubClose(env, row.github_issue);
+    resolved.push({
+      region: row.region,
+      component: row.component,
+      severity: row.severity as "DEGRADED" | "DOWN",
+      githubUrl: row.github_url,
+      durationMs: now - row.started_at,
+    });
+  }
+  return resolved;
 }
 
 function iso(ms: number): string {

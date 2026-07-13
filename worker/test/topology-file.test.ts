@@ -17,7 +17,7 @@ describe("topology.yaml (repo root)", () => {
     for (const region of topology.regions) {
       expect(region.components.length).toBeGreaterThan(0);
       for (const component of region.components) {
-        expect(Object.keys(component.probes).length).toBeGreaterThan(0);
+        expect(component.assertions.length).toBeGreaterThan(0);
       }
     }
   });

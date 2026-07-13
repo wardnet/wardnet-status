@@ -1,6 +1,6 @@
 /**
  * Bundled demo topology, activated with TOPOLOGY_URL=demo (see .dev.vars).
- * Probes REAL public endpoints so a local `wrangler dev --test-scheduled`
+ * Asserts against REAL public endpoints so a local `wrangler dev --test-scheduled`
  * produces live data, plus two rigged components:
  *   - flaky-api: real 200s judged against a 25ms latency budget → DEGRADED
  *   - legacy:    .invalid hostname that never resolves → DOWN → incident
@@ -18,10 +18,10 @@ global:
   components:
     - name: edge
       display_name: Edge Network
-      probes:
-        livez:
+      assertions:
+        - name: livez
           url: https://www.cloudflare.com/cdn-cgi/trace
-        readyz:
+        - name: readyz
           url: https://one.one.one.one/cdn-cgi/trace
 
 regions:
@@ -31,24 +31,26 @@ regions:
     components:
       - name: website
         display_name: Website
-        probes:
-          livez:
+        assertions:
+          - name: livez
             url: https://example.com/
-          healthz:
+          - name: healthz
             url: https://www.wikipedia.org/
+            impact: degraded
       - name: search
         display_name: Search
-        probes:
-          livez:
+        assertions:
+          - name: livez
             url: https://www.google.com/generate_204
-          readyz:
+          - name: readyz
             url: https://duckduckgo.com/
       - name: flaky-api
         display_name: Flaky API (degraded demo)
-        probes:
-          healthz:
+        assertions:
+          - name: healthz
             url: https://github.com/
             degraded_latency_ms: 25
+            impact: degraded
 
   - slug: euw1
     display_name: EU West 1
@@ -56,21 +58,21 @@ regions:
     components:
       - name: code-hosting
         display_name: Code Hosting
-        probes:
-          livez:
+        assertions:
+          - name: livez
             url: https://github.com/
       - name: registry
         display_name: Package Registry
-        probes:
-          livez:
+        assertions:
+          - name: livez
             url: https://registry.npmjs.org/-/ping
-          readyz:
+          - name: readyz
             url: https://registry.npmjs.org/-/ping
       - name: legacy
         display_name: Legacy Service (down demo)
-        probes:
-          livez:
+        assertions:
+          - name: livez
             url: https://legacy.demo-down.invalid/livez
-          readyz:
+          - name: readyz
             url: https://legacy.demo-down.invalid/readyz
 `;
