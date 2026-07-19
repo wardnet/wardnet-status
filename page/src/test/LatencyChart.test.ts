@@ -1,5 +1,7 @@
+import { render } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it } from "vitest";
-import { hourlyAverages } from "../components/LatencyChart";
+import { hourlyAverages, LatencyChart } from "../components/LatencyChart";
 import type { HourlyRow } from "../api/types";
 
 const HOUR = 3_600_000;
@@ -57,5 +59,40 @@ describe("hourlyAverages", () => {
       { ts: 0, avg: 20 },
       { ts: 2 * HOUR, avg: 30 },
     ]);
+  });
+});
+
+describe("LatencyChart", () => {
+  it("captions peak from the plotted series, not the slowest assertion's max", () => {
+    // The line is the cross-assertion weighted average; a peak taken from raw
+    // latency_max would sit far above anything the chart draws.
+    const { container } = render(
+      React.createElement(LatencyChart, {
+        rows: [
+          row({ probe: "livez", latency_sum: 60 * 10, latency_max: 40 }),
+          row({ probe: "healthz", latency_sum: 60 * 300, latency_max: 900 }),
+          row({ hour_ts: HOUR, probe: "livez", latency_sum: 60 * 8, latency_max: 35 }),
+          row({ hour_ts: HOUR, probe: "healthz", latency_sum: 60 * 100, latency_max: 700 }),
+        ],
+      }),
+    );
+    // Hour averages: (10+300)/2 = 155, (8+100)/2 = 54 → peak 155, not 900.
+    expect(container.textContent).toContain("peak 155ms");
+    expect(container.textContent).toContain("avg 54ms");
+  });
+
+  it("draws a flat baseline instead of NaN coordinates when every average is 0", () => {
+    // Instant failures roll up as samples > 0 with latency_sum 0; an all-zero
+    // window must not divide by a zero scale.
+    const { container } = render(
+      React.createElement(LatencyChart, {
+        rows: [row({ latency_sum: 0 }), row({ hour_ts: HOUR, latency_sum: 0 })],
+      }),
+    );
+    const paths = [...container.querySelectorAll("path")];
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) {
+      expect(p.getAttribute("d")).not.toContain("NaN");
+    }
   });
 });

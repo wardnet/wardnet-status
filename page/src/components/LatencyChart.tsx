@@ -40,7 +40,12 @@ export function LatencyChart({ rows }: { rows: HourlyRow[] }) {
   const W = 560;
   const H = 96;
   const PAD = 4;
-  const maxY = Math.max(...points.map((p) => p.avg)) * 1.15;
+  // Peak of the plotted series — the caption must describe the line it sits
+  // under, not the raw per-assertion rows, or it reports "spikes" the chart
+  // never shows. Floor the scale at 1ms so a window of all-zero averages
+  // (instant failures) draws a flat baseline instead of dividing by zero.
+  const peak = Math.max(...points.map((p) => p.avg));
+  const maxY = Math.max(peak, 1) * 1.15;
   const minTs = points[0]!.ts;
   const maxTs = points[points.length - 1]!.ts;
   const x = (ts: number) => PAD + ((ts - minTs) / (maxTs - minTs)) * (W - 2 * PAD);
@@ -61,7 +66,7 @@ export function LatencyChart({ rows }: { rows: HourlyRow[] }) {
       </svg>
       <Text variant="caption" color="ink-3">
         avg <span className="mono">{Math.round(points[points.length - 1]!.avg)}ms</span> · peak{" "}
-        <span className="mono">{Math.round(Math.max(...rows.map((r) => r.latency_max)))}ms</span> · 48h
+        <span className="mono">{Math.round(peak)}ms</span> · 48h
       </Text>
     </div>
   );

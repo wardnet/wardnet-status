@@ -18,7 +18,14 @@ export type ScenarioName =
   | "stale-config"
   | "cold-start";
 
-const PROBES = ["livez", "readyz", "healthz"];
+const PROBES = ["livez", "readyz", "healthz"] as const;
+// livez is a no-op endpoint while healthz does real work, so their latencies
+// differ a lot. Keyed off PROBES so history and status mocks can't drift apart.
+const PROBE_LATENCY_FACTOR: Record<(typeof PROBES)[number], number> = {
+  livez: 0.2,
+  readyz: 1,
+  healthz: 3,
+};
 const NOW = Date.now();
 
 function probes(status: Status, latency = 42): StatusResponse["regions"][0]["components"][0]["probes"] {
@@ -104,9 +111,9 @@ function history(): HistoryResponse {
   for (const [region, component] of components) {
     for (let h = 48; h >= 1; h--) {
       const base = 40 + Math.round(30 * Math.abs(Math.sin(h / 5)));
-      // One row per assertion, like rollup_hourly — livez is a no-op endpoint
-      // while healthz does real work, so their latencies differ a lot.
-      for (const [probe, factor] of [["livez", 0.2], ["readyz", 1], ["healthz", 3]] as const) {
+      // One row per assertion, like rollup_hourly.
+      for (const probe of PROBES) {
+        const ms = Math.round(base * PROBE_LATENCY_FACTOR[probe]);
         hourly.push({
           hour_ts: NOW - h * 3_600_000 - (NOW % 3_600_000),
           region,
@@ -116,28 +123,37 @@ function history(): HistoryResponse {
           up: 60,
           degraded: 0,
           down: 0,
-          latency_sum: Math.round(base * factor) * 60,
-          latency_max: Math.round(base * factor) + 25,
+          latency_sum: ms * 60,
+          latency_max: ms + 25,
         });
       }
     }
     for (let d = 90; d >= 1; d--) {
-      // A believable history: one bad day, a couple of degraded ones.
-      const down = component === "ddns" && d === 33 ? 120 : 0;
-      const degraded = component === "tunneller" && (d === 12 || d === 61) ? 45 : 0;
-      const samples = 1440;
-      daily.push({
-        day_ts: NOW - d * 86_400_000 - (NOW % 86_400_000),
-        region,
-        component,
-        probe: "healthz",
-        samples,
-        up: samples - down - degraded,
-        degraded,
-        down,
-        latency_sum: 50 * samples,
-        latency_max: 240,
-      });
+      // One row per assertion, like rollup_daily. A believable history: one
+      // bad day (outage hits livez/readyz; healthz caps at degraded), and a
+      // couple of degraded days surfaced through healthz only.
+      for (const probe of PROBES) {
+        const outage = component === "ddns" && d === 33;
+        const slowSpell = component === "tunneller" && (d === 12 || d === 61);
+        const down = outage && probe !== "healthz" ? 120 : 0;
+        let degraded = 0;
+        if (probe === "healthz" && outage) degraded = 120;
+        if (probe === "healthz" && slowSpell) degraded = 45;
+        const samples = 1440;
+        const ms = Math.round(50 * PROBE_LATENCY_FACTOR[probe]);
+        daily.push({
+          day_ts: NOW - d * 86_400_000 - (NOW % 86_400_000),
+          region,
+          component,
+          probe,
+          samples,
+          up: samples - down - degraded,
+          degraded,
+          down,
+          latency_sum: ms * samples,
+          latency_max: ms + 190,
+        });
+      }
     }
   }
   return { hourly, daily };
