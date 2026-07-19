@@ -2,15 +2,32 @@ import { Text } from "@wardnet/ui";
 import type { HourlyRow } from "../api/types";
 
 /**
+ * Rollup rows are keyed per assertion, but the chart is one series per
+ * component: merge rows sharing an hour into a single sample-weighted average.
+ * Plotting the rows directly would put one point per assertion on the same x
+ * (livez at 5ms, gateway at 300ms), and the line saws vertically every hour.
+ */
+export function hourlyAverages(rows: HourlyRow[]): { ts: number; avg: number }[] {
+  const byHour = new Map<number, { latency_sum: number; samples: number }>();
+  for (const r of rows) {
+    if (r.samples === 0) continue;
+    const agg = byHour.get(r.hour_ts) ?? { latency_sum: 0, samples: 0 };
+    agg.latency_sum += r.latency_sum;
+    agg.samples += r.samples;
+    byHour.set(r.hour_ts, agg);
+  }
+  return [...byHour.entries()]
+    .map(([ts, a]) => ({ ts, avg: a.latency_sum / a.samples }))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+/**
  * Response-time-over-time line, per Forge chart rules: soft-fill area, one
  * accent series, 4 dashed horizontal hairlines, mono y-labels, no vertical
  * grid, "Collecting…" empty state (never a flat-zero line).
  */
 export function LatencyChart({ rows }: { rows: HourlyRow[] }) {
-  const points = rows
-    .filter((r) => r.samples > 0)
-    .map((r) => ({ ts: r.hour_ts, avg: r.latency_sum / r.samples }))
-    .sort((a, b) => a.ts - b.ts);
+  const points = hourlyAverages(rows);
 
   if (points.length < 2) {
     return (

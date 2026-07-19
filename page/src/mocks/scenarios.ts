@@ -104,18 +104,22 @@ function history(): HistoryResponse {
   for (const [region, component] of components) {
     for (let h = 48; h >= 1; h--) {
       const base = 40 + Math.round(30 * Math.abs(Math.sin(h / 5)));
-      hourly.push({
-        hour_ts: NOW - h * 3_600_000 - (NOW % 3_600_000),
-        region,
-        component,
-        probe: "healthz",
-        samples: 60,
-        up: 60,
-        degraded: 0,
-        down: 0,
-        latency_sum: base * 60,
-        latency_max: base + 25,
-      });
+      // One row per assertion, like rollup_hourly — livez is a no-op endpoint
+      // while healthz does real work, so their latencies differ a lot.
+      for (const [probe, factor] of [["livez", 0.2], ["readyz", 1], ["healthz", 3]] as const) {
+        hourly.push({
+          hour_ts: NOW - h * 3_600_000 - (NOW % 3_600_000),
+          region,
+          component,
+          probe,
+          samples: 60,
+          up: 60,
+          degraded: 0,
+          down: 0,
+          latency_sum: Math.round(base * factor) * 60,
+          latency_max: Math.round(base * factor) + 25,
+        });
+      }
     }
     for (let d = 90; d >= 1; d--) {
       // A believable history: one bad day, a couple of degraded ones.
