@@ -1,46 +1,29 @@
-# Deploys the status Worker (page assets + prober + API) to Cloudflare on push
-# to main. Topology changes need NO deploy — topology.yaml is fetched at runtime.
-name: deploy
+# cd-deploy — this file is yours.
+#
+# gt created it once and will never modify or delete it again. It is called by
+# cd-orchestration.yml, which verifies the tagged tree carries a passing
+# gt/validated-tree attestation before this runs.
+#
+# deploy.yml's own test job is deliberately gone: it re-ran the same
+# type-check and suite ci-test already ran on the PR, and the attestation
+# proves that exact tree passed rather than proving it again.
+#
+# The paths-ignore that skipped deploys for topology/docs-only pushes is gone
+# too. topology.yaml is still fetched at runtime, so those changes still need
+# no deploy — but with tag-triggered delivery, tagging *is* the decision to
+# ship, so inferring it from paths no longer earns its place.
+name: cd-deploy
 
 on:
-  push:
-    branches: [main]
-    # Skip deploys for data/docs-only changes.
-    paths-ignore:
-      - "topology.yaml"
-      - "docs/**"
-      - "*.md"
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+  # @wardnet/* resolve from GitHub Packages during install.
   packages: read
 
-concurrency:
-  group: deploy
-  cancel-in-progress: false
-
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install
-        run: pnpm install --frozen-lockfile
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Type-check
-        run: pnpm type-check
-      - name: Test
-        run: pnpm test
-
   deploy:
-    needs: test
     runs-on: ubuntu-latest
     environment: production
     steps:

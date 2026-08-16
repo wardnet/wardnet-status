@@ -36,12 +36,9 @@ pipeline:
       - test
     merge_queue: false
   cd:
-    enabled: false
+    enabled: true
     stages:
-      - preflight
-      - publish
       - deploy
-      - verify
     tags:
       - v*.*.*
 conventional_commits:
