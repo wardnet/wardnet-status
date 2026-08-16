@@ -1,21 +1,19 @@
-# PR gate: type-check + unit tests for both workspaces on every pull request
-# (and on pushes to main, so the branch tip is always known-green). Deploys
-# live in deploy.yml; this workflow only decides whether a change is mergeable.
-name: ci
+# ci-test — this file is yours.
+#
+# gt created it once and will never modify or delete it again. It is called by
+# ci-orchestration.yml and must keep `workflow_call`.
+#
+# Type-check and unit tests share one job so the install happens once.
+#
+name: ci-test
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
+  # @wardnet/* resolve from GitHub Packages during install.
   packages: read
-
-concurrency:
-  # One in-flight run per branch/PR; newer pushes cancel superseded runs.
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test:
