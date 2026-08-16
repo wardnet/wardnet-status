@@ -1,0 +1,101 @@
+# cd-verify — this file is yours.
+#
+# gt created it once and will never modify or delete it again. It is called by
+# cd-orchestration.yml after cd-deploy.
+#
+# Confirms the deploy actually took, rather than assuming wrangler exiting zero
+# means the site is serving. Two endpoints are checked, and they fail
+# differently on purpose:
+#
+#   /            — the page assets. Served from the edge.
+#   /api/status  — the worker itself, which reads D1. A broken migration
+#                  returns 500 here while the page still returns 200, so
+#                  checking only the root would miss exactly the failure this
+#                  deploy is most likely to introduce.
+#
+# Two *consecutive* passes are required. One success can be a lucky hit on an
+# edge node still serving the previous version; requiring two spaced apart
+# makes a half-propagated or flapping deploy fail rather than squeak through.
+# It does not prove global propagation — nothing reachable from one runner
+# does — it proves the deploy is not obviously broken.
+#
+# Requests bypass cache for the reason 6e0e383 records for the probes
+# themselves: a cached 200 from before the deploy tells you nothing about it.
+name: cd-verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for the deploy to serve
+        env:
+          BASE: https://status.wardnet.network
+          ATTEMPTS: "18"
+          INTERVAL: "10"
+          REQUIRED_CONSECUTIVE: "2"
+        run: |
+          set -uo pipefail
+
+          # Returns 0 when both endpoints answer 200 and the API returns JSON.
+          #
+          # No `|| echo 000` on the curl calls: -w already prints 000 when the
+          # connection fails, and the fallback appended a second one, yielding
+          # a nonsense "000000" in the diagnostics. There is no `set -e` here,
+          # so a failed curl does not abort the loop.
+          probe() {
+            local stamp="$1" code
+            code=$(curl -sS -o /tmp/page.out -w '%{http_code}' \
+              --max-time 15 -H 'Cache-Control: no-cache' \
+              "${BASE}/?cb=${stamp}")
+            if [[ "$code" != "200" ]]; then
+              echo "  page      ${code}"
+              return 1
+            fi
+
+            code=$(curl -sS -o /tmp/api.out -w '%{http_code}' \
+              --max-time 15 -H 'Cache-Control: no-cache' \
+              "${BASE}/api/status?cb=${stamp}")
+            if [[ "$code" != "200" ]]; then
+              echo "  page 200, api ${code}"
+              return 1
+            fi
+
+            # A 200 carrying an error body is still a broken deploy.
+            if ! jq -e . /tmp/api.out >/dev/null 2>&1; then
+              echo "  page 200, api 200 but the body is not JSON"
+              return 1
+            fi
+            echo "  page 200, api 200, JSON ok"
+            return 0
+          }
+
+          consecutive=0
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "attempt ${attempt}/${ATTEMPTS}:"
+            if probe "$(date +%s)-${attempt}"; then
+              consecutive=$((consecutive + 1))
+              if [[ "$consecutive" -ge "$REQUIRED_CONSECUTIVE" ]]; then
+                echo "✅ ${consecutive} consecutive healthy responses — deploy is serving"
+                exit 0
+              fi
+            else
+              # Reset rather than decrement: the point is *consecutive* health,
+              # so a failure between two passes means the deploy is flapping.
+              consecutive=0
+            fi
+            sleep "$INTERVAL"
+          done
+
+          echo "::error::status.wardnet.network did not return ${REQUIRED_CONSECUTIVE} consecutive healthy responses"
+          echo "Last page body:" >&2; head -c 500 /tmp/page.out >&2 || true
+          echo "" >&2
+          echo "Last api body:" >&2; head -c 500 /tmp/api.out >&2 || true
+          exit 1

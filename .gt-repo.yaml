@@ -39,6 +39,7 @@ pipeline:
     enabled: true
     stages:
       - deploy
+      - verify
     tags:
       - v*.*.*
 conventional_commits:

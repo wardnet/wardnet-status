@@ -56,9 +56,25 @@ jobs:
       # permission its caller withheld.
       packages: read
 
+  verify:
+    needs: [verify-attestation, deploy]
+    uses: ./.github/workflows/cd-verify.yml
+    secrets: inherit
+    # Delivery writes: a publish stage creates a release, a deploy stage moves
+    # artifacts. A called workflow can only narrow this, so a stage needing
+    # less should say so in its own permissions block. A stage needing *more*
+    # — OIDC id-token, package registries — is a gt change today; no consumer
+    # has asked for one yet.
+    permissions:
+      contents: write
+      # Same reason as the CI stages: private @scope dependencies resolve from
+      # GitHub Packages during install, and a called workflow cannot ask for a
+      # permission its caller withheld.
+      packages: read
+
   cd-gate:
     name: cd-gate
-    needs: [verify-attestation, deploy]
+    needs: [verify-attestation, deploy, verify]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
