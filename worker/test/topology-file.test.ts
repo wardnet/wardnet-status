@@ -8,9 +8,10 @@ import { parseTopology } from "../src/topology";
 
 /**
  * Validates the REAL topology.yaml at the repo root — the artifact every
- * prober fetches from main at runtime. CI runs this on topology-only pushes
- * (.github/workflows/validate-topology.yml) so an invalid file can never land
- * on main and silently pin the probers to last-known-good.
+ * prober fetches from main at runtime. It runs in ci-test on every pull
+ * request and every push to main, so an invalid file can never land on main
+ * and silently pin the probers to last-known-good. deploy.yml skips topology
+ * changes (they need no deploy), which is why that gate has to live here.
  */
 describe("topology.yaml (repo root)", () => {
   it("parses against the schema", () => {

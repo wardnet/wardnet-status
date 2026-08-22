@@ -6,7 +6,9 @@
 #
 # This is ci.yml's test step: `pnpm -r test`, which runs vitest in both
 # workspaces. That includes worker/test/topology-file.test.ts, so topology.yaml
-# is schema-validated on every PR here too, not only in validate-topology.yml.
+# is schema-validated here — which is why validate-topology.yml is gone: it ran
+# the same test, only on topology-only changes, while this runs on every PR and
+# every push to main.
 #
 # No `gt-coverage` artifact yet: neither workspace declares a test:coverage
 # script or pulls in @vitest/coverage-v8, so there is nothing to upload.
