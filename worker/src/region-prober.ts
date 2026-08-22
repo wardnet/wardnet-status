@@ -171,7 +171,6 @@ export class RegionProber implements DurableObject {
           this.env,
           now,
           ref,
-          announced ?? "UNKNOWN",
           current,
           failingProbes.get(component.name) ?? [],
         );

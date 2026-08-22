@@ -85,7 +85,6 @@ export async function onComponentTransition(
   env: Env,
   now: number,
   ref: ComponentRef,
-  from: Status,
   to: Status,
   failures: ProbeFailure[],
 ): Promise<TransitionOutcome> {

@@ -23,3 +23,11 @@
 # See bulwark's README.
 coverage:
   source: run
+
+typescript:
+  # Biome rather than the default ESLint + eslint-plugin-security. The security
+  # plugin's detect-object-injection fires on every `obj[key]` — 13 of its 14
+  # findings here were that one rule on typed record lookups, which is noise
+  # that teaches people to ignore the gate. Biome's security + correctness sets
+  # found five things instead, four of them real and now fixed.
+  linter: biome

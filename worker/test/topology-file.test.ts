@@ -1,5 +1,8 @@
+// biome-ignore-all lint/correctness/noNodejsModules: this test reads the real
+// topology.yaml off disk and runs only under vitest on Node — it is never
+// bundled into the Worker, where the rule's concern actually applies.
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseTopology } from "../src/topology";
 
@@ -11,7 +14,7 @@ import { parseTopology } from "../src/topology";
  */
 describe("topology.yaml (repo root)", () => {
   it("parses against the schema", () => {
-    const yamlText = readFileSync(join(__dirname, "../../topology.yaml"), "utf8");
+    const yamlText = readFileSync(fileURLToPath(new URL("../../topology.yaml", import.meta.url).href), "utf8");
     const topology = parseTopology(yamlText);
     expect(topology.regions.length).toBeGreaterThan(0);
     for (const region of topology.regions) {

@@ -140,60 +140,60 @@ describe("incident lifecycle", () => {
   });
 
   it("opens one incident on entering DEGRADED and escalates in place on DOWN", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
     expect(db.rows).toHaveLength(1);
     expect(db.rows[0]).toMatchObject({ severity: "DEGRADED", escalated_at: null, resolved_at: null });
     // The stored report carries the request details the page displays.
     expect(db.rows[0]!.report).toContain("https://svc.example/readyz");
 
-    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DEGRADED", "DOWN", fails("readyz", "livez"));
+    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DOWN", fails("readyz", "livez"));
     expect(db.rows).toHaveLength(1);
     expect(db.rows[0]).toMatchObject({ severity: "DOWN", escalated_at: T0 + 60_000 });
   });
 
   it("resolves on UP, reports the episode duration, and flags resolved", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
-    const { durationMs, resolved } = await onComponentTransition(env, T0 + 300_000, ref("use1", "ddns"), "DEGRADED", "UP", fails());
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
+    const { durationMs, resolved } = await onComponentTransition(env, T0 + 300_000, ref("use1", "ddns"), "UP", fails());
     expect(db.rows[0]!.resolved_at).toBe(T0 + 300_000);
     expect(durationMs).toBe(300_000);
     expect(resolved).toBe(true);
   });
 
   it("UP with no open incident resolves nothing (cold-start reconcile is a no-op)", async () => {
-    const { resolved } = await onComponentTransition(env, T0, ref("use1", "ddns"), "UNKNOWN", "UP", fails());
+    const { resolved } = await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", fails());
     expect(resolved).toBeUndefined();
     expect(db.rows).toHaveLength(0);
   });
 
   it("re-open that escalates to DOWN stamps escalated_at", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
-    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DEGRADED", "UP", fails());
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "UP", fails());
     expect(db.rows[0]!.escalated_at).toBeNull();
-    await onComponentTransition(env, T0 + 120_000, ref("use1", "ddns"), "UP", "DOWN", fails("livez"));
+    await onComponentTransition(env, T0 + 120_000, ref("use1", "ddns"), "DOWN", fails("livez"));
     expect(db.rows).toHaveLength(1);
     expect(db.rows[0]).toMatchObject({ severity: "DOWN", escalated_at: T0 + 120_000, resolved_at: null });
   });
 
   it("re-opens the previous incident within the re-open window", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DOWN", fails("livez"));
-    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DOWN", "UP", fails());
-    await onComponentTransition(env, T0 + 60_000 + REOPEN_WINDOW_MS - 1, ref("use1", "ddns"), "UP", "DEGRADED", fails("healthz"));
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DOWN", fails("livez"));
+    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "UP", fails());
+    await onComponentTransition(env, T0 + 60_000 + REOPEN_WINDOW_MS - 1, ref("use1", "ddns"), "DEGRADED", fails("healthz"));
     expect(db.rows).toHaveLength(1);
     expect(db.rows[0]).toMatchObject({ resolved_at: null, severity: "DOWN" }); // keeps worst severity
   });
 
   it("creates a new incident after the re-open window has passed", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
-    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DEGRADED", "UP", fails());
-    await onComponentTransition(env, T0 + 60_000 + REOPEN_WINDOW_MS + 1, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "UP", fails());
+    await onComponentTransition(env, T0 + 60_000 + REOPEN_WINDOW_MS + 1, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
     expect(db.rows).toHaveLength(2);
   });
 
   it("keeps incidents per (region, component) independent", async () => {
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
-    await onComponentTransition(env, T0, ref("global", "tenants"), "UP", "DOWN", fails("livez"));
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0, ref("global", "tenants"), "DOWN", fails("livez"));
     expect(db.rows).toHaveLength(2);
-    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "DEGRADED", "UP", fails());
+    await onComponentTransition(env, T0 + 60_000, ref("use1", "ddns"), "UP", fails());
     expect(db.rows.filter((r) => r.resolved_at === null)).toHaveLength(1);
   });
 });
@@ -216,8 +216,8 @@ describe("resolveOrphanedIncidents", () => {
   it("resolves open incidents for components no longer in the topology", async () => {
     const db = fakeDb();
     const env = envWith(db.db);
-    await onComponentTransition(env, T0, ref("global", "tenants-edge"), "UP", "DOWN", fails("readyz"));
-    await onComponentTransition(env, T0, ref("global", "tenants"), "UP", "DEGRADED", fails("healthz"));
+    await onComponentTransition(env, T0, ref("global", "tenants-edge"), "DOWN", fails("readyz"));
+    await onComponentTransition(env, T0, ref("global", "tenants"), "DEGRADED", fails("healthz"));
 
     const resolved = await resolveOrphanedIncidents(env, T0 + 60_000, topo(["global", "tenants"]));
 
@@ -237,7 +237,7 @@ describe("resolveOrphanedIncidents", () => {
   it("is a no-op when every open incident's component is still in the topology", async () => {
     const db = fakeDb();
     const env = envWith(db.db);
-    await onComponentTransition(env, T0, ref("use1", "ddns"), "UP", "DEGRADED", fails("readyz"));
+    await onComponentTransition(env, T0, ref("use1", "ddns"), "DEGRADED", fails("readyz"));
 
     const resolved = await resolveOrphanedIncidents(env, T0 + 60_000, topo(["use1", "ddns"]));
     expect(resolved).toHaveLength(0);

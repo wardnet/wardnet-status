@@ -8,6 +8,10 @@
  */
 
 const PACKAGE_VERSION = '2.14.6'
+// msw's own integrity checksum for this generated file, not a credential. The
+// suppression below is dropped whenever `msw init` regenerates the file, and CI
+// flags it again if that happens.
+// biome-ignore lint/security/noSecrets: msw integrity checksum, not a credential
 const INTEGRITY_CHECKSUM = '4db4a41e972cec1b64cc569c66952d82'
 const IS_MOCKED_RESPONSE = Symbol('isMockedResponse')
 const activeClientIds = new Set()
