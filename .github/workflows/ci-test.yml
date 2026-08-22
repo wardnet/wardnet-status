@@ -1,29 +1,44 @@
 # ci-test — this file is yours.
 #
-# gt created it once and will never modify or delete it again. Put this
-# repository's test suite here; the orchestration around it stays gt's.
+# gt created it once and will never modify or delete it again. It is called by
+# ci-orchestration.yml and must keep `workflow_call`, or the orchestrator loses
+# the stage.
 #
-# Upload coverage as an artifact named `gt-coverage` and the bulwark
-# stage will consume it instead of running the suite a second time. Without it
-# bulwark falls back to running the tests itself, which is correct but slower.
+# This is ci.yml's test step: `pnpm -r test`, which runs vitest in both
+# workspaces. That includes worker/test/topology-file.test.ts, so topology.yaml
+# is schema-validated on every PR here too, not only in validate-topology.yml.
 #
-#   - uses: actions/upload-artifact@<sha>
-#     with:
-#       name: gt-coverage
-#       path: coverage.out
+# No `gt-coverage` artifact yet: neither workspace declares a test:coverage
+# script or pulls in @vitest/coverage-v8, so there is nothing to upload.
+# .bulwark.yml therefore stays on `coverage.source: run` — flipping it to
+# `report` is the same commit that starts producing one.
 name: ci-test
 
 on:
   workflow_call:
 
+# packages: read is load-bearing — @wardnet/* resolve from GitHub Packages, so
+# a frozen-lockfile install fails without it. The orchestrator grants it; a
+# called workflow can only narrow what the caller gave, never ask for more.
 permissions:
   contents: read
+  packages: read
 
 jobs:
   test:
     name: test
     runs-on: ubuntu-latest
     steps:
-      # A no-op so the stage is green from the first run. Replace it.
-      - name: Nothing to do yet
-        run: echo "No test steps defined. Add them in .github/workflows/ci-test.yml"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          # @wardnet/* resolve from GitHub Packages; the built-in token has packages:read.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test
+        run: pnpm test
