@@ -1,0 +1,33 @@
+# .bulwark.yml — this file is yours.
+#
+# gt created it once and will never modify or delete it again. bulwark owns
+# what goes in it; gt only makes sure it exists, because the one setting below
+# is load-bearing for the pipeline and silently wrong by default.
+#
+# `coverage.source` says who produces the coverage bulwark gates on:
+#
+#   run     bulwark executes the suite itself.
+#   report  bulwark only reads a report a prior job produced.
+#
+# `run` here, because nothing produces a report yet: neither workspace declares
+# a test:coverage script, and @vitest/coverage-v8 is not a dependency, so
+# ci-test uploads no `gt-coverage` artifact. Under `run` bulwark skips packages
+# with no test:coverage script and reports no coverage for TypeScript, which is
+# honest. `report` would have it look for a file nobody writes.
+#
+# Flip this to `report` in the same commit that adds coverage instrumentation
+# and uploads the artifact — not before.
+#
+# Everything else bulwark supports — per-language enablement, coverage
+# tolerances, patch-coverage opt-outs, toolchain overrides — belongs here too.
+# See bulwark's README.
+coverage:
+  source: run
+
+typescript:
+  # Biome rather than the default ESLint + eslint-plugin-security. The security
+  # plugin's detect-object-injection fires on every `obj[key]` — 13 of its 14
+  # findings here were that one rule on typed record lookups, which is noise
+  # that teaches people to ignore the gate. Biome's security + correctness sets
+  # found five things instead, four of them real and now fixed.
+  linter: biome

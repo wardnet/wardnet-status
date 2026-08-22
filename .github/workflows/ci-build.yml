@@ -1,0 +1,41 @@
+# ci-build — this file is yours.
+#
+# gt created it once and will never modify or delete it again. It is called by
+# ci-orchestration.yml and must keep `workflow_call`, or the orchestrator loses
+# the stage.
+#
+# For TypeScript the build *is* the type-check: both workspaces compile with
+# `tsc`, and the worker's own "build" script is literally `tsc --noEmit`. So
+# this stage runs what ci.yml's type-check step ran, and ci-test runs the suite.
+# The install is repeated there rather than shared, because each stage is a
+# separate workflow with its own runner and no filesystem between them.
+name: ci-build
+
+on:
+  workflow_call:
+
+# packages: read is load-bearing — @wardnet/* resolve from GitHub Packages, so
+# a frozen-lockfile install fails without it. The orchestrator grants it; a
+# called workflow can only narrow what the caller gave, never ask for more.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          # @wardnet/* resolve from GitHub Packages; the built-in token has packages:read.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Type-check
+        run: pnpm type-check

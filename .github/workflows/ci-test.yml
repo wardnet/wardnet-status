@@ -1,0 +1,46 @@
+# ci-test — this file is yours.
+#
+# gt created it once and will never modify or delete it again. It is called by
+# ci-orchestration.yml and must keep `workflow_call`, or the orchestrator loses
+# the stage.
+#
+# This is ci.yml's test step: `pnpm -r test`, which runs vitest in both
+# workspaces. That includes worker/test/topology-file.test.ts, so topology.yaml
+# is schema-validated here — which is why validate-topology.yml is gone: it ran
+# the same test, only on topology-only changes, while this runs on every PR and
+# every push to main.
+#
+# No `gt-coverage` artifact yet: neither workspace declares a test:coverage
+# script or pulls in @vitest/coverage-v8, so there is nothing to upload.
+# .bulwark.yml therefore stays on `coverage.source: run` — flipping it to
+# `report` is the same commit that starts producing one.
+name: ci-test
+
+on:
+  workflow_call:
+
+# packages: read is load-bearing — @wardnet/* resolve from GitHub Packages, so
+# a frozen-lockfile install fails without it. The orchestrator grants it; a
+# called workflow can only narrow what the caller gave, never ask for more.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          # @wardnet/* resolve from GitHub Packages; the built-in token has packages:read.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test
+        run: pnpm test
